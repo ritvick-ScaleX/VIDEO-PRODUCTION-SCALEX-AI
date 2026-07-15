@@ -1,0 +1,44 @@
+# ---- Node / Next.js ----
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ---- Env & secrets ----
+.env
+.env.local
+.env.*.local
+*.local
+
+# ---- Storage (local uploads / generated assets) ----
+backend/storage_data/
+storage_data/
+
+# ---- Editor / OS ----
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# ---- Docker ----
+*.pid
+
+# ---- Misc ----
+coverage/
+.cache/

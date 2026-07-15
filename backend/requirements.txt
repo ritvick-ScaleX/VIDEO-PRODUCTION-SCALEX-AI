@@ -1,0 +1,38 @@
+# ---- Web framework ----
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20
+
+# ---- Data / validation ----
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# ---- Database ----
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+greenlet==3.1.1
+
+# ---- Background jobs ----
+celery==5.4.0
+redis==5.2.1
+
+# ---- AI ----
+# Text generation (copy, analysis, UGC, scoring, storyboards)
+openai==1.59.6
+# Image (Imagen) + video (Veo, with native voiceover + music)
+google-genai==1.9.0
+
+# ---- Scraping ----
+playwright==1.49.1
+beautifulsoup4==4.12.3
+httpx==0.28.1
+lxml==5.3.0
+
+# ---- Exports ----
+Pillow==11.1.0
+reportlab==4.2.5
+
+# ---- Utils ----
+python-slugify==8.0.4
+tenacity==9.0.0

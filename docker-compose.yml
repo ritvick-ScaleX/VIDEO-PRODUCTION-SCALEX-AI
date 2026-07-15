@@ -1,0 +1,109 @@
+# ============================================================================
+# Auralis — AI Creative Studio
+# One command to run the whole stack:  docker compose up --build
+# Services: postgres · redis · backend(api) · worker(celery) · frontend · nginx
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-auralis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-auralis}
+      POSTGRES_DB: ${POSTGRES_DB:-auralis}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-auralis}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://auralis:auralis@postgres:5432/auralis}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STORAGE_DIR: /app/storage_data
+      RUN_MIGRATIONS_ON_START: "true"
+    volumes:
+      - storage_data:/app/storage_data
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://auralis:auralis@postgres:5432/auralis}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      STORAGE_DIR: /app/storage_data
+    volumes:
+      - storage_data:/app/storage_data
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    command: >
+      celery -A app.workers.celery_app.celery_app worker
+      --loglevel=info --concurrency=4
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Auralis}
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Auralis}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - backend
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  postgres_data:
+  storage_data:

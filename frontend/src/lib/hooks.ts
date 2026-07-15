@@ -233,7 +233,14 @@ export const useCopy = (pid?: string) =>
 export const useImages = (pid?: string) =>
   useQuery({ queryKey: qk.images(pid!), queryFn: () => api.images.list(pid!), enabled: !!pid });
 export const useVideos = (pid?: string) =>
-  useQuery({ queryKey: qk.videos(pid!), queryFn: () => api.videos.list(pid!), enabled: !!pid });
+  useQuery({
+    queryKey: qk.videos(pid!),
+    queryFn: () => api.videos.list(pid!),
+    enabled: !!pid,
+    // While any video is rendering (background job on the server), poll for completion.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((v) => v.status === "rendering") ? 5000 : false,
+  });
 export const useUGC = (pid?: string) =>
   useQuery({ queryKey: qk.ugc(pid!), queryFn: () => api.ugc.list(pid!), enabled: !!pid });
 export const useScores = (pid?: string) =>
@@ -315,9 +322,9 @@ export function useRenderVideo(pid: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.videos.render(pid, id),
-    onSuccess: (v) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.videos(pid) });
-      toast.success(v.video_url ? "Video rendered" : "Rendered (storyboard — add a video key)");
+      toast.success("Rendering started — this takes a few minutes. It'll appear here automatically.");
     },
     onError: (e: Error) => toast.error(e.message),
   });

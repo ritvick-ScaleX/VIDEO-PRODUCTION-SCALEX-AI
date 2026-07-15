@@ -883,27 +883,42 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
         )}
 
         {/* Stage actions */}
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="glass"
-            onClick={() => frames.mutate(video.id)}
-            disabled={frames.isPending || render.isPending}
-          >
-            {frames.isPending ? <Spinner /> : <ImageIcon className="h-4 w-4" />}
-            {video.frame_urls.length > 0 ? "Regenerate frames" : "Generate frames"}
-          </Button>
-          <Button
-            variant="aurora"
-            onClick={() => render.mutate(video.id)}
-            disabled={render.isPending || frames.isPending || video.frame_urls.length === 0}
-          >
-            {render.isPending ? <Spinner /> : <Play className="h-4 w-4" />}
-            {render.isPending ? "Rendering…" : "Render video"}
-          </Button>
-        </div>
-        {video.frame_urls.length === 0 && (
-          <p className="text-xs text-muted-foreground">Generate frames before rendering.</p>
-        )}
+        {(() => {
+          const rendering = video.status === "rendering";
+          return (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="glass"
+                  onClick={() => frames.mutate(video.id)}
+                  disabled={frames.isPending || render.isPending || rendering}
+                >
+                  {frames.isPending ? <Spinner /> : <ImageIcon className="h-4 w-4" />}
+                  {video.frame_urls.length > 0 ? "Regenerate frames" : "Generate frames"}
+                </Button>
+                <Button
+                  variant="aurora"
+                  onClick={() => render.mutate(video.id)}
+                  disabled={
+                    render.isPending || frames.isPending || rendering || video.frame_urls.length === 0
+                  }
+                >
+                  {render.isPending || rendering ? <Spinner /> : <Play className="h-4 w-4" />}
+                  {rendering ? "Rendering…" : render.isPending ? "Starting…" : "Render video"}
+                </Button>
+              </div>
+              {rendering && (
+                <p className="text-xs text-muted-foreground">
+                  Rendering your multi-shot video — this takes a few minutes and updates here
+                  automatically. You can leave this page.
+                </p>
+              )}
+              {!rendering && video.frame_urls.length === 0 && (
+                <p className="text-xs text-muted-foreground">Generate frames before rendering.</p>
+              )}
+            </>
+          );
+        })()}
       </CardContent>
     </Card>
   );

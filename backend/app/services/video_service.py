@@ -19,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.logging import get_logger
 from app.models.generation import GeneratedVideo
 from app.models.idea import Idea
 from app.prompts import script as script_prompt
@@ -29,6 +30,8 @@ from app.services.ai import heygen, llm, media
 from app.services.brief import assemble_brief
 from app.services.product_service import _load
 from app.storage import storage
+
+logger = get_logger(__name__)
 
 VERTICAL_FORMATS = {"reel", "short", "story"}
 _SHOT_ANGLES = [
@@ -275,7 +278,44 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
     )
 
 
-async def render(db: AsyncSession, product_id: str, video_id: str) -> GeneratedVideo:
+async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> GeneratedVideo:
+    """Flip the video to 'rendering' and return at once — the minutes-long Veo work
+    then runs in the background (see render_background). Rendering synchronously over
+    HTTP times out behind Railway's proxy ('failed to fetch')."""
+    video = await db.get(GeneratedVideo, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    video.status = "rendering"
+    video.progress = 5
+    video.video_url = None
+    await db.flush()
+    await db.refresh(video)
+    return video
+
+
+async def render_background(product_id: str, video_id: str) -> None:
+    """Run the render off the request path in its own DB session; never leave it stuck."""
+    from app.database.session import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            await _render_impl(db, product_id, video_id)
+            await db.commit()
+    except Exception as exc:
+        logger.exception("render failed for video %s", video_id)
+        try:
+            async with AsyncSessionLocal() as db:
+                v = await db.get(GeneratedVideo, video_id)
+                if v:
+                    v.status = "error"
+                    v.progress = 100
+                    v.meta = {**(v.meta or {}), "render_error": str(exc)[:300]}
+                    await db.commit()
+        except Exception:
+            logger.exception("could not mark render error for %s", video_id)
+
+
+async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> GeneratedVideo:
     """Render the approved script into a realistic multi-shot Veo ad (Indian, Hinglish)."""
     video = await db.get(GeneratedVideo, video_id)
     if not video:

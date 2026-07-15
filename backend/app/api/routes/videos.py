@@ -1,6 +1,8 @@
 """Video endpoints — script draft, edit/reprompt, frames, render (prefix /products)."""
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,7 +48,13 @@ async def generate_frames(product_id: str, video_id: str, db: AsyncSession = Dep
 
 @router.post("/{product_id}/videos/{video_id}/render", response_model=VideoRead)
 async def render_video(product_id: str, video_id: str, db: AsyncSession = Depends(get_db)):
-    return await video_service.render(db, product_id, video_id)
+    """Kick off the render and return immediately (status='rendering'); the client polls
+    the video list until it becomes 'ready'/'error'. The Veo work is minutes long and
+    would otherwise time out behind the edge proxy."""
+    video = await video_service.begin_render(db, product_id, video_id)
+    await db.commit()  # persist 'rendering' before the background task reads it
+    asyncio.create_task(video_service.render_background(product_id, video_id))
+    return video
 
 
 @router.patch("/{product_id}/videos/{video_id}/save", response_model=VideoRead)

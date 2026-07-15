@@ -215,19 +215,33 @@ def _sync_generate_video(
                 kw["resolution"] = res
         if ref:
             kw["reference_images"] = ref
+        # Drop any params this SDK version doesn't support (keeps older builds working).
+        valid = set(getattr(types.GenerateVideosConfig, "model_fields", None) or {})
+        if valid:
+            kw = {k: v for k, v in kw.items() if k in valid}
         return types.GenerateVideosConfig(**kw)
 
     def as_image(b: bytes):
         return types.Image(image_bytes=b, mime_type=_sniff_mime(b))
 
+    # Reference-to-video (exact-product asset) is only on newer google-genai builds.
+    # Guard it so an older SDK degrades to image-to-video instead of crashing the render.
     ref_list = None
-    if product_bytes:
-        ref_list = [
-            types.VideoGenerationReferenceImage(
-                image=as_image(product_bytes),
-                reference_type=types.VideoGenerationReferenceType.ASSET,
-            )
-        ]
+    if (
+        product_bytes
+        and hasattr(types, "VideoGenerationReferenceImage")
+        and hasattr(types, "VideoGenerationReferenceType")
+    ):
+        try:
+            ref_list = [
+                types.VideoGenerationReferenceImage(
+                    image=as_image(product_bytes),
+                    reference_type=types.VideoGenerationReferenceType.ASSET,
+                )
+            ]
+        except Exception as exc:
+            logger.warning("Veo reference-images unavailable (%s) — using image-to-video", exc)
+            ref_list = None
 
     # (extra generate_videos kwargs, config) — tried until one SUBMITS.
     attempts: list[tuple[dict, Any]] = []

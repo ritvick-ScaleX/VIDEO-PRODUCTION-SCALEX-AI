@@ -228,8 +228,10 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
 
     consistency = (
         f"THE PRESENTER (identical in every frame of this storyboard): {character}. "
-        f"THE SETTING (same location & light in every frame): {setting_desc}. "
-        "Do NOT change the person's face, hair, outfit, or the location between frames."
+        f"Her/his face, hair and build must NEVER change between frames. "
+        f"PRIMARY SETTING (the default location & light): {setting_desc}. Keep this setting "
+        "unless THIS scene's direction explicitly names a different location — a scripted "
+        "location change is allowed, but the presenter stays the identical person."
     )
     realism = (
         "This must look like a real photograph of a real person: natural skin with visible "
@@ -245,8 +247,9 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
     for i, scene in enumerate(scenes):
         base = anchor if anchor is not None else seed
         continuation = (
-            "Continue the SAME shoot as the reference image: same person, same outfit, same "
-            "location, same light — only the camera angle and action change to: "
+            "Continue the SAME shoot as the reference image — the SAME person with the identical "
+            "face, hair and build. Keep the same outfit and location unless this scene's "
+            "direction explicitly changes them. New scene direction: "
             if anchor is not None
             else "Scene: "
         )
@@ -310,9 +313,9 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
     return (
         f"Photorealistic, cinematic {video.format} product commercial for {name}. {anim}{angle}. "
         f"CONSISTENCY (critical — this is one shot of a multi-shot ad): the presenter is "
-        f"{character} — the SAME person with the SAME face, hair and outfit in every shot of this "
-        f"ad. The location is {setting_desc} — the SAME place and light in every shot. Never swap "
-        f"the person, outfit or location. "
+        f"{character} — the SAME person with the identical face, hair and build in every shot of "
+        f"this ad; never swap the person. Default location: {setting_desc} — keep it unless this "
+        f"shot's script clearly moves the story to a new scripted location. "
         f"Shot on a professional cinema camera: lifelike human with natural skin texture and pores, "
         f"realistic fabric and material detail, true-to-life lighting with soft natural shadows, "
         f"35mm lens, shallow depth of field, gentle organic camera movement (subtle handheld/dolly), "

@@ -78,6 +78,8 @@ def build_prompt(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any
         "description of the single presenter who appears in EVERY scene (gender, age, "
         "complexion, hair style & colour, exact outfit with colours, overall vibe) — and "
         "'setting' — ONE primary location + light description (time of day, palette). "
-        "Every scene's 'visual' must feature that same character in that same setting "
-        "(camera angle and action may change; the person, outfit and place may NOT)."
+        "Every scene features that SAME character (face/hair/build never change). Use the "
+        "primary setting for nearly all scenes; at most ONE later scene may move to a "
+        "different location for a deliberate transformation/payoff beat — if so, name the "
+        "new location explicitly in that scene's 'visual'."
     )

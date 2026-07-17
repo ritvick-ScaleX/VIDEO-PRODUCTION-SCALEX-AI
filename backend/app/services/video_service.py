@@ -74,7 +74,13 @@ async def _draft_from_result(db, product, req, result, idea_id) -> GeneratedVide
         thumbnail_url=thumb_url,
         status="draft",
         progress=0,
-        meta={"text_mode": llm.mode, "thumb_key": thumb_key},
+        meta={
+            "text_mode": llm.mode,
+            "thumb_key": thumb_key,
+            # Consistency sheet: same presenter + same setting in every frame/shot.
+            "character": result.get("character") or settings.veo_presenter,
+            "setting": result.get("setting") or "a fitting real-world location, natural light",
+        },
     )
     db.add(video)
     await db.flush()
@@ -153,6 +159,10 @@ async def reprompt(db: AsyncSession, video_id: str, instructions: str) -> Genera
     video.status = "draft"
     video.frame_urls = []
     video.video_url = None
+    meta = dict(video.meta or {})
+    meta["character"] = result.get("character") or meta.get("character") or settings.veo_presenter
+    meta["setting"] = result.get("setting") or meta.get("setting") or "a fitting real-world location, natural light"
+    video.meta = meta
     await db.flush()
     await db.refresh(video)
     return video
@@ -196,7 +206,13 @@ async def _model_seed(db: AsyncSession, product) -> bytes | None:
 
 
 async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> GeneratedVideo:
-    """One AI storyboard FRAME image per scene (reviewable before render)."""
+    """One AI storyboard FRAME image per scene (reviewable before render).
+
+    Consistency strategy: every frame prompt carries the SAME character + setting
+    sheet (from the script), and frames 2..n are edited FROM frame 1 — so the same
+    person, outfit and location persist across the whole storyboard. Frames are
+    centre-cropped to the video's aspect so nothing downstream letterboxes.
+    """
     video = await db.get(GeneratedVideo, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -204,29 +220,56 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
     brief = assemble_brief(product, product.brand)
     seed = await _model_seed(db, product)
 
+    vmeta = dict(video.meta or {})
+    character = vmeta.get("character") or settings.veo_presenter
+    setting_desc = vmeta.get("setting") or "a fitting real-world location, natural light"
+    vertical = video.format in VERTICAL_FORMATS
+    aw, ah = (9, 16) if vertical else (16, 9)
+
+    consistency = (
+        f"THE PRESENTER (identical in every frame of this storyboard): {character}. "
+        f"THE SETTING (same location & light in every frame): {setting_desc}. "
+        "Do NOT change the person's face, hair, outfit, or the location between frames."
+    )
+    realism = (
+        "This must look like a real photograph of a real person: natural skin with visible "
+        "pores and texture, real hair strands, believable hands, honest eyes — never plastic, "
+        "airbrushed, waxy or CGI-like. Photorealistic, motivated natural lighting, shallow "
+        "depth of field, tasteful colour grade, editorial commercial quality."
+    )
+
     frame_urls: list[str] = []
     frame_keys: list[str] = []
+    anchor: bytes | None = None  # frame 1 → visual anchor for all later frames
     scenes = video.storyboard[:6] or [{"visual": brief.get("usp") or product.name, "on_screen_text": product.name}]
     for i, scene in enumerate(scenes):
+        base = anchor if anchor is not None else seed
+        continuation = (
+            "Continue the SAME shoot as the reference image: same person, same outfit, same "
+            "location, same light — only the camera angle and action change to: "
+            if anchor is not None
+            else "Scene: "
+        )
         prompt = (
-            f"Cinematic film still (key frame) for a high-end {video.format} ad. "
-            f"{settings.veo_presenter} in this scene: {scene.get('visual', '')}. "
-            f"The product is the hero, clearly visible in a natural real-world setting. "
-            f"Keep the product EXACTLY as in the reference — same shape, colour, material, label, "
-            f"logo and text; do not alter, redesign or replace it. Photorealistic, motivated natural "
-            f"lighting, realistic skin and textures, shallow depth of field, tasteful colour grade, "
-            f"editorial commercial quality. No text overlay, no subtitles, no watermark."
+            f"Cinematic film still (key frame {i + 1}) for a high-end {video.format} ad, "
+            f"{aw}:{ah} composition. {consistency} {continuation}{scene.get('visual', '')}. "
+            f"The product is clearly visible and EXACTLY as in the reference — same shape, "
+            f"colour, material, label, logo and text; never redesign or replace it. {realism} "
+            f"No text overlay, no subtitles, no watermark."
         )
         data = None
-        if seed is not None:
-            data = await media.edit_image(seed, prompt)
+        if base is not None:
+            data = await media.edit_image(base, prompt)
         if data is None and media.images_enabled():
             data = await media.generate_image(prompt, video.format)
         if data is None:
             data = image_service.render_poster(
-                "story", scene.get("on_screen_text") or product.name,
+                "story" if vertical else "landscape", scene.get("on_screen_text") or product.name,
                 brief.get("cta") or "", brief.get("brand_colors") or ["#6D5EF8", "#22D3EE"], product.name,
             )
+        data = image_service.crop_to_aspect(data, aw, ah)  # full-bleed seeds → no letterboxing
+        if anchor is None and data is not None:
+            anchor = data
         key = f"products/{product_id}/videos/{video_id[:8]}-frame-{i}.png"
         frame_urls.append(storage.save_bytes(key, data))
         frame_keys.append(key)
@@ -256,24 +299,32 @@ def _split_script(text: str, n: int) -> list[str]:
 
 def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: bool) -> str:
     name = brief.get("product_name") or product.name
+    vmeta = video.meta or {}
+    character = vmeta.get("character") or settings.veo_presenter
+    setting_desc = vmeta.get("setting") or "a fitting real-world location, natural light"
     anim = (
         "Animate the provided reference into a live, moving shot; keep the presenter and product "
-        "consistent frame to frame. " if has_seed else ""
+        "identical to the reference. " if has_seed else ""
     )
     colors = ", ".join((brief.get("brand_colors") or [])[:2])
     return (
         f"Photorealistic, cinematic {video.format} product commercial for {name}. {anim}{angle}. "
+        f"CONSISTENCY (critical — this is one shot of a multi-shot ad): the presenter is "
+        f"{character} — the SAME person with the SAME face, hair and outfit in every shot of this "
+        f"ad. The location is {setting_desc} — the SAME place and light in every shot. Never swap "
+        f"the person, outfit or location. "
         f"Shot on a professional cinema camera: lifelike human with natural skin texture and pores, "
-        f"realistic fabric and material detail, true-to-life lighting with soft natural shadows, a "
-        f"real-world location, 35mm lens, shallow depth of field, gentle organic camera movement "
-        f"(subtle handheld/dolly), 24fps film look with subtle motion blur. "
+        f"realistic fabric and material detail, true-to-life lighting with soft natural shadows, "
+        f"35mm lens, shallow depth of field, gentle organic camera movement (subtle handheld/dolly), "
+        f"24fps film look with subtle motion blur — a real filmed advertisement, never CGI or "
+        f"AI-looking. "
         f"PRODUCT FIDELITY — the featured product MUST be exactly the product in the reference "
         f"image: identical shape, colour, material, label, logo and text. Never redesign, restyle, "
         f"recolour or substitute it; keep it in sharp focus and clearly visible. "
-        f"The presenter is {settings.veo_presenter}: natural, expressive and confident, speaking "
-        f"directly to camera with accurate, well-timed lip-sync in {settings.veo_language}, saying "
-        f"exactly: \"{line[:220]}\". Crystal-clear spoken audio, no background-narration clutter. "
-        f"Absolutely no on-screen text, subtitles, captions or watermark."
+        f"The presenter speaks directly to camera with accurate, well-timed lip-sync in "
+        f"{settings.veo_language}, saying exactly: \"{line[:220]}\". Crystal-clear spoken audio, "
+        f"no background-narration clutter. Absolutely no on-screen text, subtitles, captions or "
+        f"watermark."
         + (f" Subtle brand-colour accents in the setting: {colors}." if colors else "")
     )
 

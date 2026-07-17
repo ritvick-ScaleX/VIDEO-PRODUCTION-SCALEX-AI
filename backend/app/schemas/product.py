@@ -16,6 +16,7 @@ class ProductCreate(BaseModel):
     description: str | None = None
     features: list[str] | None = None
     benefits: list[str] | None = None
+    ingredients: list[str] | None = None
     price: str | None = None
     target_audience: str | None = None
     cta: str | None = None
@@ -27,6 +28,7 @@ class ProductUpdate(BaseModel):
     description: str | None = None
     features: list[str] | None = None
     benefits: list[str] | None = None
+    ingredients: list[str] | None = None
     price: str | None = None
     target_audience: str | None = None
     cta: str | None = None
@@ -47,6 +49,7 @@ class ProductRead(TimestampedRead):
     description: str | None = None
     features: list[str] = []
     benefits: list[str] = []
+    ingredients: list[str] = []
     price: str | None = None
     target_audience: str | None = None
     cta: str | None = None

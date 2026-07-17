@@ -261,7 +261,7 @@ export function useGenerateCopy(pid: string) {
 export function useGenerateImages(pid: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: { category: string; format: string; count?: number; prompt?: string; headline?: string; cta?: string }) =>
+    mutationFn: (body: { category: string; format: string; count?: number; prompt?: string; idea_id?: string | null; headline?: string; cta?: string }) =>
       api.images.generate(pid, body),
     onSuccess: (created) => {
       // Prepend the new images to the catalog immediately, then refetch to reconcile.
@@ -271,6 +271,26 @@ export function useGenerateImages(pid: string) {
       ]);
       qc.invalidateQueries({ queryKey: qk.images(pid) });
       toast.success(`${created?.length ?? 0} image${(created?.length ?? 0) === 1 ? "" : "s"} added to catalog`);
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+export function useReviewImage(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, comment }: { id: string; status: string; comment?: string | null }) =>
+      api.images.review(pid, id, { status, comment }),
+    onSuccess: (img) => {
+      qc.setQueryData<GeneratedImage[]>(qk.images(pid), (old) =>
+        (old ?? []).map((i) => (i.id === img.id ? img : i))
+      );
+      toast.success(
+        img.review_status === "accepted"
+          ? "Image accepted"
+          : img.review_status === "rejected"
+            ? "Image rejected — feedback saved for the next run"
+            : "Review cleared"
+      );
     },
     onError: (e: Error) => toast.error(e.message),
   });

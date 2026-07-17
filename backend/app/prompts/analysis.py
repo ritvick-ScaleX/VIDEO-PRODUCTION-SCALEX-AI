@@ -25,13 +25,14 @@ SCHEMA: dict[str, Any] = {
         "hooks": {"type": "array", "items": {"type": "string"}},
         "cta_suggestions": {"type": "array", "items": {"type": "string"}},
         "emotional_triggers": {"type": "array", "items": {"type": "string"}},
+        "ingredients": {"type": "array", "items": {"type": "string"}},
         "usp": {"type": "string"},
         "strategy_summary": {"type": "string"},
     },
     "required": [
         "brand_voice", "customer_persona", "pain_points", "benefits",
         "marketing_angles", "offers", "hooks", "cta_suggestions",
-        "emotional_triggers", "usp", "strategy_summary",
+        "emotional_triggers", "ingredients", "usp", "strategy_summary",
     ],
 }
 
@@ -50,6 +51,10 @@ def build_prompt(product: dict[str, Any]) -> str:
         "- hooks: 5-7 scroll-stopping opening lines.\n"
         "- cta_suggestions: 4-6 punchy calls to action.\n"
         "- emotional_triggers: 4-6 emotions to activate.\n"
+        "- ingredients: IF this is an ingredient-led product (skincare, cosmetics, "
+        "food, supplements, cleaning…), list the key ingredients/actives found in the "
+        "product data (e.g. 'Vitamin C', 'SPF 50', 'Niacinamide'). If ingredients "
+        "don't apply to this product type (apparel, electronics…), return [].\n"
         "- usp: one sentence unique selling proposition.\n"
         "- strategy_summary: a 3-4 sentence go-to-market summary."
     )

@@ -18,6 +18,7 @@ class IdeaRead(TimestampedRead):
     product_id: str
     prompt: str | None = None
     batch_id: str | None = None
+    kind: str = "video"
     title: str | None = None
     angle: str | None = None
     description: str | None = None

@@ -17,10 +17,12 @@ async def analyze(db: AsyncSession, product_id: str) -> Product:
         "description": product.description,
         "features": product.features,
         "benefits": product.benefits,
+        "ingredients": product.ingredients,
         "price": product.price,
         "target_audience": product.target_audience,
         "hero_content": product.hero_content,
         "reviews": product.reviews,
+        "raw_page_signals": (product.raw_scrape or {}).get("features"),
     }
     result = await llm.generate_structured(
         system=prompt.SYSTEM,
@@ -31,6 +33,13 @@ async def analyze(db: AsyncSession, product_id: str) -> Product:
         effort="high",
     )
     product.analysis = result
+    # Promote AI-extracted facts onto the product where it's still blank.
+    if not product.ingredients and result.get("ingredients"):
+        product.ingredients = result["ingredients"]
+    if not product.benefits and result.get("benefits"):
+        product.benefits = result["benefits"]
+    if not product.target_audience and result.get("customer_persona"):
+        product.target_audience = result["customer_persona"]
     product.status = "ready"
     await db.flush()
     await analytics_service.record_event(

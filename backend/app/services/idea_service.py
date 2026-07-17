@@ -34,6 +34,7 @@ async def generate(db: AsyncSession, product_id: str, req: IdeaGenerateRequest) 
             product_id=product_id,
             prompt=req.prompt,
             batch_id=batch,
+            kind=item.get("kind") if item.get("kind") in ("image", "video") else "video",
             title=item.get("title"),
             angle=item.get("angle"),
             description=item.get("description"),
@@ -63,9 +64,13 @@ async def select_idea(db: AsyncSession, idea_id: str) -> Idea:
     idea = await db.get(Idea, idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
-    # Only one selected per product; the rest stay pending.
+    # Only one selected per product per kind; the rest stay pending.
     rows = await db.execute(
-        select(Idea).where(Idea.product_id == idea.product_id, Idea.status == "selected")
+        select(Idea).where(
+            Idea.product_id == idea.product_id,
+            Idea.status == "selected",
+            Idea.kind == idea.kind,
+        )
     )
     for other in rows.scalars().all():
         if other.id != idea.id:

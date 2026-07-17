@@ -121,6 +121,35 @@ async def _fetch_one(client: httpx.AsyncClient, url: str) -> bytes | None:
     return None
 
 
+def crop_to_aspect(data: bytes, target_w: int, target_h: int) -> bytes:
+    """Centre-crop image bytes to a target aspect ratio (e.g. 9:16 for reels).
+
+    Keeps frames/video seeds full-bleed — no letterboxing downstream. Returns the
+    original bytes on any failure.
+    """
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        w, h = img.size
+        target = target_w / target_h
+        current = w / h
+        if abs(current - target) < 0.01:
+            return data
+        if current > target:  # too wide → trim sides
+            new_w = int(h * target)
+            x0 = (w - new_w) // 2
+            img = img.crop((x0, 0, x0 + new_w, h))
+        else:  # too tall → trim top/bottom
+            new_h = int(w / target)
+            y0 = (h - new_h) // 2
+            img = img.crop((0, y0, w, y0 + new_h))
+        buf = io.BytesIO()
+        img.convert("RGB").save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return data
+
+
 async def fetch_reference(urls: list[str]) -> bytes | None:
     """First usable PRODUCT image (skip logos/icons/tiny assets)."""
     ordered = [u for u in urls if not any(b in u.lower() for b in _BAD_ASSET)] or list(urls)
@@ -156,19 +185,30 @@ _EDIT_PROMPTS = {
         "Ultra-detailed, high-resolution commercial catalogue quality. Absolutely no props, no "
         "text, no graphics, no watermark, no reflection clutter."
     ),
-    "creative": (
-        "Create a high-end advertising campaign photograph with the SAME product as the hero. "
-        "Keep the product identical and photorealistic. Art-direct a tasteful, story-driven "
-        "lifestyle scene that fits the product and brand; cinematic lighting with a soft key and "
-        "gentle rim light, rich but natural colour grade, shallow depth of field with pleasing "
-        "bokeh. Leave clean negative space for a headline. Editorial magazine quality, 35mm look, "
-        "photorealistic. No text, no logos-overlay, no watermark."
-    ),
+    # PRODUCT SHOT — the product alone is the hero, staged in a real environment.
+    # Strictly NO people: no model, no hands, no body parts, no reflections of people.
     "product_shot": (
-        "Create a premium studio hero shot of the SAME product, kept identical. Dramatic yet "
-        "controlled key-plus-fill lighting, elegant subtle gradient backdrop, a soft reflection "
-        "on a smooth surface, crisp macro detail and glossy commercial finish. 85mm lens look, "
-        "tasteful composition. High-end, photorealistic. No text, no watermark."
+        "Create a premium product-hero photograph of the SAME product, kept EXACTLY identical "
+        "(shape, colours, label, logo, text). The product is the ONLY subject, staged in a "
+        "real-world scene that fits it (its natural habitat — e.g. sunscreen standing in warm "
+        "sand with soft waves behind; a serum on wet stone with water ripples). "
+        "STRICT RULE: absolutely NO people — no model, no hands, no fingers, no skin, no body "
+        "parts, no human reflections or shadows. Natural props only. Golden natural light or "
+        "controlled studio light, crisp macro detail on the product, shallow depth of field, "
+        "85mm product-photography look, photorealistic. No text overlay, no watermark."
+    ),
+    # CREATIVE — lifestyle scene; a model IS allowed but must read as a real photographed human.
+    "creative": (
+        "Create a high-end lifestyle advertising photograph with the SAME product as the hero, "
+        "kept EXACTLY identical (shape, colours, label, logo, text). A real human model may "
+        "feature naturally using or holding the product. REALISM IS CRITICAL: this must look like "
+        "an actual photograph of a real person — natural skin with visible pores and fine texture, "
+        "subtle skin imperfections, real hair strands (flyaways included), natural asymmetric "
+        "features, believable hands, honest catch-lights in the eyes. NOT retouched-plastic, NOT "
+        "airbrushed, NOT CGI, NOT doll-like, no beauty-filter smoothing, no waxy or porcelain "
+        "skin. Candid editorial energy, cinematic natural lighting with soft key and gentle rim, "
+        "rich but true colour grade, shallow depth of field, 35mm documentary-commercial look. "
+        "Leave clean negative space for a headline. No text, no watermark."
     ),
 }
 _TEXT_PROMPTS = {
@@ -177,18 +217,51 @@ _TEXT_PROMPTS = {
         "background, soft even softbox lighting, natural contact shadow, centred and tack-sharp, "
         "true-to-life colours, high-resolution catalogue quality, no text, no props, no watermark"
     ),
-    "creative": (
-        "High-end advertising campaign photograph featuring {name} as the hero in an art-directed "
-        "lifestyle scene, cinematic lighting, rim light, rich natural colour grade, shallow depth "
-        "of field with bokeh, negative space for a headline, editorial magazine quality, "
+    "product_shot": (
+        "Premium product-hero photograph of {name} staged alone in a fitting real-world scene, "
+        "product is the only subject, absolutely no people, no hands, no body parts, natural "
+        "props and light, crisp macro product detail, shallow depth of field, 85mm look, "
         "photorealistic, no text, no watermark"
     ),
-    "product_shot": (
-        "Premium studio hero shot of {name}, dramatic key-plus-fill lighting, subtle gradient "
-        "backdrop, soft reflection, crisp macro detail, glossy commercial finish, 85mm lens look, "
+    "creative": (
+        "High-end lifestyle advertising photograph featuring {name} as the hero, a real human "
+        "model using it naturally — natural skin texture with visible pores, real hair, candid "
+        "editorial energy, not airbrushed, not CGI, not plastic — cinematic natural lighting, "
+        "rich true colour grade, shallow depth of field, negative space for a headline, "
         "photorealistic, no text, no watermark"
     ),
 }
+
+
+def _facts_block(product, brief) -> str:
+    """Grounding facts so scenes match the actual product (its world, actives, buyer)."""
+    parts = [f"PRODUCT: {product.name}."]
+    if product.description:
+        parts.append(f"About: {product.description[:280]}")
+    if product.ingredients:
+        parts.append(f"Key ingredients/actives: {', '.join(product.ingredients[:8])}.")
+    if product.benefits:
+        parts.append(f"Benefits: {'; '.join(product.benefits[:4])}.")
+    audience = product.target_audience or brief.get("customer_persona")
+    if audience:
+        parts.append(f"Target audience: {str(audience)[:200]}")
+    return " ".join(parts)
+
+
+async def _rejection_feedback(db: AsyncSession, product_id: str, limit: int = 5) -> list[str]:
+    """Comments from recently rejected images — the avoid-list for the next run."""
+    rows = await db.execute(
+        select(GeneratedImage.review_comment)
+        .where(
+            GeneratedImage.product_id == product_id,
+            GeneratedImage.review_status == "rejected",
+            GeneratedImage.review_comment.is_not(None),
+            GeneratedImage.review_comment != "",
+        )
+        .order_by(GeneratedImage.updated_at.desc())
+        .limit(limit)
+    )
+    return [c for (c,) in rows.all() if c]
 
 
 async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest) -> list[GeneratedImage]:
@@ -207,8 +280,36 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
         if pool:
             refs = await fetch_references(pool, limit=max(req.count, 4))
 
-    edit_prompt = req.prompt or _EDIT_PROMPTS.get(cat, _EDIT_PROMPTS["creative"])
-    text_prompt = req.prompt or _TEXT_PROMPTS.get(cat, _TEXT_PROMPTS["creative"]).format(name=product.name)
+    # Compose the prompt: category direction + product facts + chosen market angle
+    # + user's extra direction + avoid-list from rejected-image feedback.
+    blocks: list[str] = [
+        _EDIT_PROMPTS.get(cat, _EDIT_PROMPTS["creative"]),
+        _facts_block(product, brief),
+    ]
+    idea = None
+    if req.idea_id:
+        from app.models.idea import Idea
+
+        idea = await db.get(Idea, req.idea_id)
+    if idea is not None:
+        blocks.append(
+            "CONCEPT TO EXECUTE — build the scene from this market angle: "
+            f"“{idea.title}” ({idea.angle}). Scene: {idea.description} "
+            + (f"Mood/hook: “{idea.hook}”." if idea.hook else "")
+        )
+    if req.prompt:
+        blocks.append(f"EXTRA DIRECTION from the user (must follow): {req.prompt.strip()}")
+    feedback = await _rejection_feedback(db, product_id)
+    if feedback:
+        blocks.append(
+            "USER FEEDBACK — earlier images were REJECTED for the reasons below. "
+            "Do not repeat these mistakes:\n- " + "\n- ".join(f[:200] for f in feedback)
+        )
+
+    edit_prompt = "\n\n".join(blocks)
+    text_prompt = "\n\n".join(
+        [_TEXT_PROMPTS.get(cat, _TEXT_PROMPTS["creative"]).format(name=product.name), *blocks[1:]]
+    )
 
     created: list[GeneratedImage] = []
     for i in range(req.count):
@@ -235,11 +336,18 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
             product_id=product_id,
             category=cat,
             format=req.format,
-            prompt=req.prompt or headline,
+            prompt=req.prompt or (idea.title if idea is not None else headline),
             url=url,
             width=w,
             height=h,
-            meta={"provider": provider, "storage_key": key, "cta": cta},
+            meta={
+                "provider": provider,
+                "storage_key": key,
+                "cta": cta,
+                "idea_id": req.idea_id,
+                "idea_title": idea.title if idea is not None else None,
+                "feedback_applied": len(feedback),
+            },
         )
         db.add(img)
         created.append(img)
@@ -268,6 +376,19 @@ async def set_saved(db: AsyncSession, image_id: str, saved: bool) -> GeneratedIm
     if obj:
         obj.is_saved = saved
         await db.flush()
+    return obj
+
+
+async def set_review(
+    db: AsyncSession, image_id: str, status: str, comment: str | None
+) -> GeneratedImage | None:
+    """Accept/reject an image. Rejection comments become avoid-context for future runs."""
+    obj = await db.get(GeneratedImage, image_id)
+    if obj:
+        obj.review_status = status
+        obj.review_comment = (comment or "").strip() or None
+        await db.flush()
+        await db.refresh(obj)
     return obj
 
 

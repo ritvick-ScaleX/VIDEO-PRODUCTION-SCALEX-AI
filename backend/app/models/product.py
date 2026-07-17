@@ -40,6 +40,8 @@ class Product(Base, TimestampMixin):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     features: Mapped[list[str]] = mapped_column(JSON, default=list)
     benefits: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # Key ingredients for ingredient-led products (skincare, food, supplements…).
+    ingredients: Mapped[list[str]] = mapped_column(JSON, default=list)
     price: Mapped[str | None] = mapped_column(String(120), nullable=True)
     target_audience: Mapped[str | None] = mapped_column(Text, nullable=True)
     cta: Mapped[str | None] = mapped_column(String(255), nullable=True)

@@ -24,6 +24,8 @@ SCHEMA: dict[str, Any] = {
     "properties": {
         "script": {"type": "string"},
         "voiceover": {"type": "string"},
+        "character": {"type": "string"},
+        "setting": {"type": "string"},
         "storyboard": {
             "type": "array",
             "items": {
@@ -42,7 +44,7 @@ SCHEMA: dict[str, Any] = {
         "captions": {"type": "array", "items": {"type": "string"}},
         "transitions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["script", "voiceover", "storyboard", "captions", "transitions"],
+    "required": ["script", "voiceover", "character", "setting", "storyboard", "captions", "transitions"],
 }
 
 _DURATION_HINT = {
@@ -71,5 +73,11 @@ def build_prompt(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any
         "real setting, where the product appears) — filmable as-is. Deliver: a full "
         "script; one combined voiceover track that flows naturally end-to-end; a "
         "storyboard (scene, visual, voiceover, on_screen_text, duration); punchy "
-        "per-scene captions; and smooth transitions that fit the pacing."
+        "per-scene captions; and smooth transitions that fit the pacing. "
+        "CONSISTENCY (critical): also return 'character' — ONE detailed, reusable "
+        "description of the single presenter who appears in EVERY scene (gender, age, "
+        "complexion, hair style & colour, exact outfit with colours, overall vibe) — and "
+        "'setting' — ONE primary location + light description (time of day, palette). "
+        "Every scene's 'visual' must feature that same character in that same setting "
+        "(camera angle and action may change; the person, outfit and place may NOT)."
     )

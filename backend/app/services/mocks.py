@@ -76,6 +76,7 @@ def mock_analysis(product: dict[str, Any]) -> dict[str, Any]:
             "Get started today",
         ],
         "emotional_triggers": ["Aspiration", "Belonging", "Relief", "Confidence", "FOMO"],
+        "ingredients": [],
         "usp": f"{name} delivers premium results without the premium hassle — designed to just work.",
         "strategy_summary": f"Lead with the aspirational upgrade angle for cold audiences, then retarget with social proof and the launch offer. Keep the voice confident and warm. {name}'s edge is friction-free premium quality — make every creative feel effortless and trustworthy.",
     }
@@ -163,10 +164,12 @@ def mock_ugc(brief: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def mock_video(brief: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:
+def mock_video(brief: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:  # noqa: C901
     name = _name(brief)
     benefits = _benefits(brief)
     return {
+        "character": "A friendly Indian presenter in their late 20s, casual smart outfit, warm energy.",
+        "setting": "A bright, real-world location that suits the product; natural daylight.",
         "script": (
             f"[Upbeat] Introducing {name}. {benefits[0]}. "
             f"Built for people who refuse to settle. {benefits[-1]}. "
@@ -199,36 +202,63 @@ def mock_ideas(brief: dict[str, Any], user_prompt: str, count: int) -> dict[str,
     benefits = _benefits(brief)
     directions = [
         {
+            "kind": "image",
+            "title": "Golden Hour Hero",
+            "angle": "product-in-its-world",
+            "description": f"{name} staged alone in its natural habitat — warm golden light, real props, product razor-sharp as the sole hero. No people.",
+            "hook": f"Meet {name}.",
+        },
+        {
+            "kind": "image",
+            "title": "Ingredient Story",
+            "angle": "ingredient-hero",
+            "description": f"Macro flat-lay of {name} surrounded by its key ingredients, editorial styling, clean negative space for a headline.",
+            "hook": "What's inside matters.",
+        },
+        {
+            "kind": "image",
+            "title": "Real-Life Moment",
+            "angle": "lifestyle",
+            "description": f"A real person mid-routine with {name} — candid, natural skin texture, documentary light. Feels like a photo, not an ad.",
+            "hook": "Your everyday, upgraded.",
+        },
+        {
+            "kind": "video",
             "title": "Problem → Hero",
             "angle": "pain-to-solution",
             "description": f"Open on the everyday frustration your buyer feels, then reveal {name} as the fix. {benefits[0]}.",
             "hook": f"Tired of settling? {name} changes everything.",
         },
         {
+            "kind": "video",
             "title": "Day in the Life",
             "angle": "lifestyle",
             "description": f"Follow a relatable creator through their day using {name} — natural, aspirational, real.",
             "hook": f"POV: your day just got upgraded with {name}.",
         },
         {
+            "kind": "video",
             "title": "Honest Review",
             "angle": "authenticity",
             "description": f"A creator gives a candid, first-person take on {name}. Builds trust fast.",
             "hook": "I was skeptical… but then I tried this.",
         },
         {
+            "kind": "video",
             "title": "Social Proof Wall",
             "angle": "reviews",
             "description": f"Rapid-fire real reactions + 5-star callouts. {benefits[-1]}.",
             "hook": f"Everyone's switching to {name} — here's why.",
         },
         {
+            "kind": "video",
             "title": "Bold Claim",
             "angle": "provocation",
             "description": f"Lead with a confident, category-defining claim about {name} and back it up.",
             "hook": f"This is the only {name} you'll ever need.",
         },
         {
+            "kind": "video",
             "title": "Before / After",
             "angle": "transformation",
             "description": f"Show the clear contrast {name} makes. {benefits[0]}.",
@@ -237,7 +267,12 @@ def mock_ideas(brief: dict[str, Any], user_prompt: str, count: int) -> dict[str,
     ]
     if user_prompt:
         directions[0]["description"] = f"{user_prompt.strip().rstrip('.')} — {directions[0]['description']}"
-    return {"ideas": directions[:count]}
+    # Balance the batch: half image concepts, half video concepts.
+    imgs = [d for d in directions if d.get("kind") == "image"]
+    vids = [d for d in directions if d.get("kind") == "video"]
+    n_img = max(1, count // 2)
+    picked = imgs[:n_img] + vids[: max(1, count - n_img)]
+    return {"ideas": picked[:count]}
 
 
 def mock_script(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:
@@ -245,6 +280,11 @@ def mock_script(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any]
     benefits = _benefits(brief)
     hook = idea.get("hook") or f"Yaar, {name} ne toh game hi change kar diya!"
     return {
+        "character": (
+            "A warm, confident Indian woman in her late 20s; shoulder-length black hair; "
+            "wearing a sage-green linen shirt; natural makeup; friendly, energetic vibe."
+        ),
+        "setting": "A bright modern apartment living room, morning sunlight, warm neutral palette.",
         "script": (
             f"[Hook] {hook} "
             f"[Body] Sach mein, {benefits[0].lower()} — bina kisi jhanjhat ke. "

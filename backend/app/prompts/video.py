@@ -17,6 +17,8 @@ SCHEMA: dict[str, Any] = {
     "properties": {
         "script": {"type": "string"},
         "voiceover": {"type": "string"},
+        "character": {"type": "string"},
+        "setting": {"type": "string"},
         "storyboard": {
             "type": "array",
             "items": {
@@ -35,7 +37,7 @@ SCHEMA: dict[str, Any] = {
         "captions": {"type": "array", "items": {"type": "string"}},
         "transitions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["script", "voiceover", "storyboard", "captions", "transitions"],
+    "required": ["script", "voiceover", "character", "setting", "storyboard", "captions", "transitions"],
 }
 
 _DURATION_HINT = {

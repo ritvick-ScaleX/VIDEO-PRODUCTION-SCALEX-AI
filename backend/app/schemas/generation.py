@@ -49,9 +49,15 @@ class ImageGenerateRequest(BaseModel):
     category: ImageCategory = "creative"
     format: ImageFormat = "square"
     prompt: str | None = None
+    idea_id: str | None = None  # build the image from this market angle
     count: int = Field(default=1, ge=1, le=6)
     headline: str | None = None
     cta: str | None = None
+
+
+class ImageReviewRequest(BaseModel):
+    status: Literal["accepted", "rejected", "pending"]
+    comment: str | None = None  # rejection feedback — becomes avoid-context next run
 
 
 class ImageRead(TimestampedRead):
@@ -64,6 +70,8 @@ class ImageRead(TimestampedRead):
     height: int
     meta: dict[str, Any] = {}
     is_saved: bool = False
+    review_status: str = "pending"
+    review_comment: str | None = None
 
 
 # --------------------------------------------------------------------------- #

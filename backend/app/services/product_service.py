@@ -14,7 +14,7 @@ from app.services import analytics_service, brand_service
 logger = get_logger(__name__)
 
 _SEED_FIELDS = {
-    "description", "features", "benefits", "price", "target_audience", "cta",
+    "description", "features", "benefits", "ingredients", "price", "target_audience", "cta",
 }
 
 

@@ -28,6 +28,10 @@ class GeneratedImage(Base, TimestampMixin):
     height: Mapped[int] = mapped_column(Integer, default=1024)
     meta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     is_saved: Mapped[bool] = mapped_column(Boolean, default=False)
+    # pending | accepted | rejected — user review; rejection comments feed the
+    # next generation as avoid-this feedback context.
+    review_status: Mapped[str] = mapped_column(String(12), default="pending", index=True)
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     product: Mapped["Product"] = relationship(back_populates="images_rel")
 

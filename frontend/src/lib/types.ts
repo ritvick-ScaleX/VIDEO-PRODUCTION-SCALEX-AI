@@ -46,6 +46,7 @@ export interface Product {
   description: string | null;
   features: string[];
   benefits: string[];
+  ingredients: string[];
   price: string | null;
   target_audience: string | null;
   cta: string | null;
@@ -65,11 +66,14 @@ export interface Product {
 
 export type IdeaStatus = "pending" | "selected" | "rejected";
 
+export type IdeaKind = "image" | "video";
+
 export interface Idea {
   id: string;
   product_id: string;
   prompt: string | null;
   batch_id: string | null;
+  kind: IdeaKind;
   title: string | null;
   angle: string | null;
   description: string | null;
@@ -111,6 +115,8 @@ export type ImageFormat =
   | "square" | "portrait" | "landscape" | "story" | "carousel" | "poster" | "lifestyle";
 export type ImageCategory = "white_background" | "creative" | "product_shot";
 
+export type ReviewStatus = "pending" | "accepted" | "rejected";
+
 export interface GeneratedImage {
   id: string;
   product_id: string;
@@ -122,6 +128,8 @@ export interface GeneratedImage {
   height: number;
   meta: Record<string, unknown>;
   is_saved: boolean;
+  review_status: ReviewStatus;
+  review_comment: string | null;
   created_at: string;
   updated_at: string;
 }

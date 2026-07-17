@@ -28,6 +28,8 @@ class Idea(Base, TimestampMixin):
     # Groups ideas generated together (one prompt -> one batch).
     batch_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
 
+    # image | video — which asset this direction is for.
+    kind: Mapped[str] = mapped_column(String(12), default="video", index=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     angle: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

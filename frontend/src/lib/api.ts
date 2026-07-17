@@ -101,8 +101,10 @@ export const api = {
     list: (pid: string) => get<GeneratedImage[]>(`/products/${pid}/images`),
     generate: (
       pid: string,
-      body: { category: string; format: string; count?: number; prompt?: string; headline?: string; cta?: string }
+      body: { category: string; format: string; count?: number; prompt?: string; idea_id?: string | null; headline?: string; cta?: string }
     ) => post<GeneratedImage[]>(`/products/${pid}/images`, body),
+    review: (pid: string, id: string, body: { status: string; comment?: string | null }) =>
+      patch<GeneratedImage>(`/products/${pid}/images/${id}/review`, body),
     save: (pid: string, id: string, is_saved: boolean) =>
       patch<GeneratedImage>(`/products/${pid}/images/${id}/save`, { is_saved }),
     remove: (pid: string, id: string) => del<{ message: string }>(`/products/${pid}/images/${id}`),

@@ -103,11 +103,16 @@ _BAD_ASSET = ("logo", "icon", "favicon", "sprite", "placeholder", "loader", "bad
 
 
 def reference_pool(product) -> list[str]:
-    """URLs the AI may use as references — the user's curated selection first."""
+    """URLs the AI may use as references — the user's curated selection first.
+
+    Without a selection, use ONLY the hero image: store pages list cross-sell
+    products further down, and feeding those in gets the wrong product (and a
+    hallucinated label) into generations.
+    """
     selected = list(getattr(product, "selected_images", None) or [])
     if selected:
         return selected
-    return list(product.images or [])
+    return list(product.images or [])[:1]
 
 
 async def _fetch_one(client: httpx.AsyncClient, url: str) -> bytes | None:
@@ -119,6 +124,35 @@ async def _fetch_one(client: httpx.AsyncClient, url: str) -> bytes | None:
     except Exception:
         return None
     return None
+
+
+def trim_solid_border(data: bytes, tolerance: int = 14) -> bytes:
+    """Remove flat padding bands (white/black canvas) the model sometimes returns
+    around the real composition. Returns original bytes if nothing to trim."""
+    try:
+        from PIL import ImageChops
+
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        w, h = img.size
+        corners = [
+            img.getpixel((1, 1)), img.getpixel((w - 2, 1)),
+            img.getpixel((1, h - 2)), img.getpixel((w - 2, h - 2)),
+        ]
+        bg = max(set(corners), key=corners.count)
+        diff = ImageChops.difference(img, Image.new("RGB", img.size, bg))
+        diff = ImageChops.add(diff, diff, 2.0, -tolerance)
+        bbox = diff.getbbox()
+        # Only trim when a real composition remains and something was actually padded.
+        if bbox and (bbox[2] - bbox[0]) > w * 0.4 and (bbox[3] - bbox[1]) > h * 0.4 and (
+            bbox != (0, 0, w, h)
+        ):
+            img = img.crop(bbox)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            return buf.getvalue()
+        return data
+    except Exception:
+        return data
 
 
 def crop_to_aspect(data: bytes, target_w: int, target_h: int) -> bytes:
@@ -282,9 +316,20 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
 
     # Compose the prompt: category direction + product facts + chosen market angle
     # + user's extra direction + avoid-list from rejected-image feedback.
+    fmt_w, fmt_h = FORMAT_DIMS.get(req.format, (1080, 1080))
     blocks: list[str] = [
         _EDIT_PROMPTS.get(cat, _EDIT_PROMPTS["creative"]),
         _facts_block(product, brief),
+        (
+            f"CANVAS: compose for a {req.format} frame ({fmt_w}x{fmt_h}); fill the ENTIRE canvas "
+            "edge-to-edge with the scene — no borders, no letterboxing, no blank margins, no "
+            "white padding bands."
+        ),
+        (
+            "LABEL FIDELITY: reproduce the product's label, typography, colours and packaging "
+            "EXACTLY as in the reference photo — never invent, rewrite, translate or garble any "
+            "label text."
+        ),
     ]
     idea = None
     if req.idea_id:
@@ -328,6 +373,12 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
             rotated = brand_colors[i % len(brand_colors):] + brand_colors[: i % len(brand_colors)]
             data = render_poster(req.format, headline, cta, rotated, brand_tag)
             provider = "template"
+
+        if provider != "template":
+            # Kill padding bands the model sometimes returns, then enforce the
+            # requested format's exact aspect so the image is always full-bleed.
+            data = trim_solid_border(data)
+            data = crop_to_aspect(data, fmt_w, fmt_h)
 
         key = f"products/{product_id}/images/{cat}-{product_id[:8]}-{i}-{len(created)}-{abs(hash(edit_prompt)) % 100000}.png"
         url = storage.save_bytes(key, data)

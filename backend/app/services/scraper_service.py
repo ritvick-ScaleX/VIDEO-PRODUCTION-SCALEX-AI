@@ -221,7 +221,13 @@ async def scrape_into_product(db: AsyncSession, product: Product) -> dict[str, A
     html = await _fetch_html(url)
     data = parse_html(html, url)
 
-    product.name = product.name or data.get("title") or "Product"
+    # The page's real title beats the URL-slug guess the client sent at create time.
+    scraped_title = (data.get("title") or "").strip()
+    if scraped_title:
+        clean = re.split(r"\s+[|–—-]\s+", scraped_title)[0].strip() or scraped_title
+        product.name = clean[:255]
+    else:
+        product.name = product.name or "Product"
     product.description = product.description or data.get("description")
     product.hero_content = product.hero_content or data.get("hero_content")
     product.images = data.get("images") or product.images

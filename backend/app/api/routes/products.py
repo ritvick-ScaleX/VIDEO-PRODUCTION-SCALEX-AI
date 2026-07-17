@@ -50,4 +50,9 @@ async def rescrape(product_id: str, db: AsyncSession = Depends(get_db)):
             status_code=422,
             detail="Couldn't fetch this URL (the site likely blocks automated access). Enter details manually.",
         )
+    # Fresh data → fresh analysis, automatically.
+    try:
+        await analysis_service.analyze(db, product_id)
+    except Exception:
+        pass  # keep the refreshed data even if analysis hiccups
     return await product_service.get_product(db, product_id)

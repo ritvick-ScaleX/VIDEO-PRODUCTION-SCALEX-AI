@@ -435,7 +435,8 @@ const IMAGE_CATEGORIES: { value: ImageCategory; label: string; desc: string }[] 
   { value: "product_shot", label: "Product shot", desc: "Product only, staged in a real scene — no model" },
   { value: "creative", label: "Creative", desc: "Lifestyle scene with a realistic human model" },
 ];
-const IMAGE_FORMATS = ["square", "portrait", "landscape", "story", "poster", "lifestyle"];
+// Meta ad placements: square (feed) and story (9:16 Stories/Reels) only.
+const IMAGE_FORMATS = ["square", "story"];
 
 function ImagesTab({
   productId,

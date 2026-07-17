@@ -60,12 +60,20 @@ async def create_product(db: AsyncSession, brand_id: str, data: ProductCreate) -
     )
 
     if data.source_type == "url" and data.source_url:
-        from app.services import scraper_service
+        from app.services import analysis_service, scraper_service
 
         try:
             await scraper_service.scrape_into_product(db, product)
         except Exception as exc:
             logger.warning("scrape failed for %s: %s", data.source_url, exc)
+        # Auto-analyze right after import — the studio opens fully briefed
+        # (ingredients, angles, audience) with no manual "Analyze" step.
+        try:
+            product.status = "analyzing"
+            await db.flush()
+            await analysis_service.analyze(db, product.id)
+        except Exception as exc:
+            logger.warning("auto-analysis failed for %s: %s", product.id, exc)
         product.status = "ready"
 
     await db.flush()

@@ -216,6 +216,18 @@ async def _product_photo(db: AsyncSession, product) -> bytes | None:
     return None
 
 
+# Locks the product's packaging FORM FACTOR (jar vs tube vs bottle …), not just its
+# label/colours — Nano Banana otherwise "normalises" e.g. a sunscreen jar into a tube.
+_PACKAGING_FIDELITY = (
+    "The product MUST stay IDENTICAL to the reference image, including its exact "
+    "packaging/container FORMAT and proportions — if the reference is a jar/tub keep a jar/tub, "
+    "if a bottle keep a bottle, if a tube keep a tube, if a pump keep a pump; NEVER convert it to "
+    "a different container type (e.g. do not turn a jar into a tube), even if unusual for the "
+    "category. Keep the same overall shape, size, colours, material, finish, cap/lid, label, logo "
+    "and text. Do not redesign, restyle, resize, recolour or replace it."
+)
+
+
 async def _model_seed(db: AsyncSession, product) -> bytes | None:
     """A 'model showcasing the EXACT product' composite (Nano Banana) to seed frames/video.
 
@@ -228,11 +240,9 @@ async def _model_seed(db: AsyncSession, product) -> bytes | None:
         model = await media.edit_image(
             base,
             f"Photorealistic advertising photograph: {settings.veo_presenter} naturally holding and "
-            "showcasing THIS EXACT product in a fitting real-world setting. CRITICAL: keep the "
-            "product identical to the reference — same shape, colours, material, label, logo and "
-            "text; do not redesign, restyle or replace it. Natural lighting, realistic skin and "
-            "textures, shallow depth of field, the product in sharp focus and clearly visible. "
-            "Professional, photorealistic, no text, no watermark.",
+            f"showcasing THIS EXACT product in a fitting real-world setting. {_PACKAGING_FIDELITY} "
+            "Natural lighting, realistic skin and textures, shallow depth of field, the product in "
+            "sharp focus and clearly visible. Professional, photorealistic, no text, no watermark.",
         )
         if model:
             return model
@@ -294,8 +304,8 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
             f"Candid, authentic UGC-style smartphone photo (key frame {i + 1}) for a "
             f"real-feeling {video.format} ad, {aw}:{ah} composition. {consistency} "
             f"{continuation}{scene.get('visual', '')}. "
-            f"The product is clearly visible and EXACTLY as in the reference — same shape, "
-            f"colour, material, label, logo and text; never redesign or replace it. {realism} "
+            f"The product is clearly visible and EXACTLY as in the reference image. "
+            f"{_PACKAGING_FIDELITY} {realism} "
             f"No text overlay, no subtitles, no watermark."
         )
         data = None
@@ -361,9 +371,11 @@ _VEO_PROMPT_TEMPLATE = (
     "with gentle window spill and the small imperfections of a real room — exactly where an "
     "ordinary person would actually record themselves, never a studio, seamless backdrop or "
     "artificial AI-looking set. The featured product must match the attached reference image "
-    "EXACTLY — identical shape, colour, material, finish, label, logo and text — kept sharp and "
-    "clearly in frame as the reason-to-believe hero moment, never redesigned, recoloured, "
-    "relabelled or substituted. The presenter speaks straight into the phone in {language}, warmly "
+    "EXACTLY — identical packaging/container format and proportions (never converted to a "
+    "different container type: a jar stays a jar, never a tube), shape, colour, material, finish, "
+    "label, logo and text — kept sharp and clearly in frame as the reason-to-believe hero moment, "
+    "never redesigned, recoloured, relabelled or substituted. The presenter speaks straight into "
+    "the phone in {language}, warmly "
     "and conversationally to camera, delivering exactly this line and nothing else: \"{line}\". "
     "LIP-SYNC IS THE SINGLE MOST IMPORTANT REQUIREMENT: mouth, lips, teeth, tongue and jaw must "
     "move in perfect frame-accurate sync with every single syllable, with natural co-articulation, "

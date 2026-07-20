@@ -398,6 +398,8 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
                 "idea_id": req.idea_id,
                 "idea_title": idea.title if idea is not None else None,
                 "feedback_applied": len(feedback),
+                # Why it fell back to the template renderer (for debugging live).
+                "image_error": media.last_image_error() if provider == "template" else None,
             },
         )
         db.add(img)

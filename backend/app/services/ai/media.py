@@ -62,18 +62,48 @@ def _extract_inline_image(resp) -> bytes | None:
     return None
 
 
+# Last image-generation failure reason (surfaced into image meta for debugging).
+_last_image_error: str | None = None
+
+
+def last_image_error() -> str | None:
+    return _last_image_error
+
+
+def _image_configs():
+    """Config variants to try — the image model may or may not want response_modalities."""
+    from google.genai import types
+
+    variants = []
+    for mods in (["IMAGE"], ["TEXT", "IMAGE"]):
+        try:
+            variants.append(types.GenerateContentConfig(response_modalities=mods))
+        except Exception:
+            pass
+    variants.append(None)  # last resort: no config (older behavior)
+    return variants
+
+
 def _sync_generate_image(prompt: str, aspect: str) -> bytes | None:
     """Text-to-image via Nano Banana (Gemini 2.5 Flash Image)."""
-    try:
-        client = _client()
-        resp = client.models.generate_content(
-            model=settings.nano_banana_model,
-            contents=[f"{prompt} Aspect ratio {aspect}, professional advertising photograph."],
-        )
-        return _extract_inline_image(resp)
-    except Exception as exc:
-        logger.warning("Nano Banana text-to-image failed (%s)", exc)
-        return None
+    global _last_image_error
+    client = _client()
+    full = f"{prompt} Aspect ratio {aspect}, professional advertising photograph."
+    for cfg in _image_configs():
+        try:
+            kwargs: dict[str, Any] = {"model": settings.nano_banana_model, "contents": [full]}
+            if cfg is not None:
+                kwargs["config"] = cfg
+            resp = client.models.generate_content(**kwargs)
+            img = _extract_inline_image(resp)
+            if img:
+                _last_image_error = None
+                return img
+            _last_image_error = "model returned no inline image"
+        except Exception as exc:
+            _last_image_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+    logger.warning("Nano Banana text-to-image failed (%s)", _last_image_error)
+    return None
 
 
 async def generate_image(prompt: str, image_format: str) -> bytes | None:
@@ -95,26 +125,26 @@ def _sniff_mime(data: bytes) -> str:
 
 
 def _sync_edit_image(ref: bytes, prompt: str) -> bytes | None:
-    try:
-        from google.genai import types
+    global _last_image_error
+    from google.genai import types
 
-        client = _client()
-        resp = client.models.generate_content(
-            model=settings.nano_banana_model,
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=ref, mime_type=_sniff_mime(ref)),
-            ],
-        )
-        for cand in getattr(resp, "candidates", None) or []:
-            for part in getattr(cand.content, "parts", None) or []:
-                inline = getattr(part, "inline_data", None)
-                if inline and getattr(inline, "data", None):
-                    return bytes(inline.data)
-        return None
-    except Exception as exc:
-        logger.warning("Nano Banana edit failed (%s)", exc)
-        return None
+    client = _client()
+    part = types.Part.from_bytes(data=ref, mime_type=_sniff_mime(ref))
+    for cfg in _image_configs():
+        try:
+            kwargs: dict[str, Any] = {"model": settings.nano_banana_model, "contents": [prompt, part]}
+            if cfg is not None:
+                kwargs["config"] = cfg
+            resp = client.models.generate_content(**kwargs)
+            img = _extract_inline_image(resp)
+            if img:
+                _last_image_error = None
+                return img
+            _last_image_error = "model returned no inline image"
+        except Exception as exc:
+            _last_image_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+    logger.warning("Nano Banana edit failed (%s)", _last_image_error)
+    return None
 
 
 async def edit_image(reference: bytes, prompt: str) -> bytes | None:

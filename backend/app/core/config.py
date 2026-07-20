@@ -61,11 +61,13 @@ class Settings(BaseSettings):
     # Imagen — text-to-image fallback when there's no reference product photo.
     imagen_model: str = Field(default="imagen-4.0-generate-001")
     # Veo — realistic model-showcase video (person + voiceover + music).
+    # This is the model that has been rendering videos — keep it.
     veo_model: str = Field(default="veo-3.1-fast-generate-preview")
     veo_timeout_seconds: int = Field(default=240)
     # Number of angle/shot clips to generate and stitch into one ad (1 = single shot).
-    # Only used when there are no storyboard frames; otherwise one shot per frame.
-    veo_shots: int = Field(default=3)
+    # With storyboard frames it's ONE shot per frame; this 5 is the fallback when a
+    # video has no frames, so the reel is a full 5-shot cut either way.
+    veo_shots: int = Field(default=5)
     # Max Veo clips generated at once. Firing every shot concurrently trips Veo's
     # per-minute rate limit and drops clips (the reel loses frames); a low cap spreads
     # them out so each one lands without burning quota on retries.

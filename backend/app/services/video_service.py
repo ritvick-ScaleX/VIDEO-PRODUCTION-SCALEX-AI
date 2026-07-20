@@ -419,21 +419,28 @@ async def render_higgsfield_background(product_id: str, video_id: str) -> None:
             product = await _load(db, product_id)
             mdef = (video.meta or {}).get("higgsfield")
             image_url = (video.frame_urls or [None])[0]
-            mp4 = None
-            if mdef and image_url:
-                mp4 = await higgsfield.generate_video(mdef, _higgsfield_prompt(video, product), image_url)
+            mp4, reason = None, None
+            if not mdef:
+                reason = "No Higgsfield model assigned to this variant."
+            elif not image_url:
+                reason = "No public frame URL available to seed the video."
+            else:
+                mp4, reason = await higgsfield.generate_video(
+                    mdef, _higgsfield_prompt(video, product), image_url
+                )
             meta = dict(video.meta or {})
             if mp4:
                 vkey = f"products/{product_id}/videos/{video_id[:8]}.mp4"
                 video.video_url = storage.save_bytes(vkey, mp4)
                 meta.update({"video_provider": "higgsfield", "has_audio": True, "video_key": vkey})
+                meta.pop("render_error", None)
                 frame = await media.extract_thumbnail(mp4, at_seconds=1.0)
                 if frame:
                     tkey = f"products/{product_id}/videos/{video_id[:8]}-vthumb.jpg"
                     video.thumbnail_url = storage.save_bytes(tkey, frame)
                 video.status = "ready"
             else:
-                meta["render_error"] = "Higgsfield render unavailable (check credentials/model id, and that frame URLs are publicly reachable)."
+                meta["render_error"] = reason or "Higgsfield render unavailable."
                 video.status = "error"
             video.meta = meta
             video.progress = 100

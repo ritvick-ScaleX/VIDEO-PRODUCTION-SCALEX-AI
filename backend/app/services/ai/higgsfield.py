@@ -1,16 +1,24 @@
-"""Higgsfield video generation — extra models (Seedance, Kling, Gemini, …).
+"""Higgsfield video generation — extra models rendered alongside our Veo pipeline.
 
 Higgsfield's Cloud API (https://platform.higgsfield.ai):
   • auth header:  Authorization: Key <KEY_ID>:<KEY_SECRET>
-  • submit:       POST /v1/image2video/<family>  {model, prompt, input_images:[…]}
-  • result:       a job set whose finished job carries results.raw.url (the mp4)
+  • submit:       POST /v1/image2video/dop
+                  body -> {"params": {"model": <enum>, "prompt": str,
+                                       "input_images": [{"type":"image_url","image_url":URL}]}}
+                  model enum (this account): 'dop-lite' | 'dop-preview' | 'dop-turbo'
+  • result:       a job set whose finished job carries a result video URL (mp4)
+
+NOTE: this account's catalogue exposes only Higgsfield DoP video (+ Soul images) —
+NOT Seedance / Kling / Gemini. Those must be enabled on the Higgsfield plan; once
+they are, add them to HIGGSFIELD_MODELS (JSON env) — no code change needed.
 
 Image-to-video needs a PUBLIC image URL (our generated storyboard frames are
 served from STORAGE_PUBLIC_URL, which is publicly reachable in production).
 
-Everything degrades gracefully: no creds or any failure → returns None and the
-caller simply skips that model. Model ids / endpoints are config-driven
-(settings.higgsfield_models) so the catalog can change without a code edit.
+Everything degrades gracefully: no creds or any failure → returns (None, reason)
+so the caller can surface the real reason (e.g. "Not enough credits") in the UI.
+Model ids / endpoints are config-driven (settings.higgsfield_models) so the
+catalog can change without a code edit.
 """
 from __future__ import annotations
 
@@ -89,17 +97,39 @@ def _find_id(obj: dict) -> str | None:
     return None
 
 
-def _sync_generate(model_def: dict[str, Any], prompt: str, image_url: str) -> bytes | None:
+def _error_text(resp) -> str:
+    """Turn a Higgsfield error response into a short human-readable reason."""
+    try:
+        data = resp.json()
+    except Exception:
+        return (resp.text or "")[:200].strip() or f"HTTP {resp.status_code}"
+    if isinstance(data, dict):
+        d = data.get("detail")
+        if isinstance(d, str):
+            return d[:200]
+        if isinstance(d, list) and d:
+            msgs = [str(e.get("msg") or e) for e in d if isinstance(e, dict)]
+            if msgs:
+                return "; ".join(msgs)[:200]
+    return str(data)[:200]
+
+
+def _sync_generate(
+    model_def: dict[str, Any], prompt: str, image_url: str
+) -> tuple[bytes | None, str | None]:
+    """Returns (mp4_bytes, None) on success, or (None, reason) on any failure."""
     import httpx
 
     base = settings.higgsfield_base_url.rstrip("/")
     endpoint = model_def.get("endpoint") or "/v1/image2video/dop"
-    body: dict[str, Any] = {
+    # DoP schema: everything nests under "params".
+    params: dict[str, Any] = {
         "model": model_def.get("model"),
         "prompt": prompt,
         "input_images": [{"type": "image_url", "image_url": image_url}],
         **(model_def.get("params") or {}),
     }
+    body = {"params": params}
     headers = {"Authorization": _auth_header(), "Content-Type": "application/json"}
     deadline = time.monotonic() + settings.higgsfield_timeout_seconds
     label = model_def.get("label", model_def.get("model", "higgsfield"))
@@ -107,8 +137,9 @@ def _sync_generate(model_def: dict[str, Any], prompt: str, image_url: str) -> by
         with httpx.Client(timeout=60) as c:
             r = c.post(f"{base}{endpoint}", json=body, headers=headers)
             if r.status_code >= 400:
-                logger.warning("Higgsfield %s submit %s: %s", label, r.status_code, r.text[:200])
-                return None
+                reason = _error_text(r)
+                logger.warning("Higgsfield %s submit %s: %s", label, r.status_code, reason)
+                return None, f"{label}: {reason}"
             data = r.json()
             # Immediate result?
             url = _find_url(data)
@@ -127,27 +158,36 @@ def _sync_generate(model_def: dict[str, Any], prompt: str, image_url: str) -> by
                     pdata = pr.json()
                     st = _find_status(pdata)
                     if st in _FAILED:
-                        logger.warning("Higgsfield %s failed: %s", label, str(pdata)[:200])
-                        return None
+                        reason = _error_text(pr)
+                        logger.warning("Higgsfield %s failed: %s", label, reason)
+                        return None, f"{label}: {reason}"
                     url = _find_url(pdata)
                     if url or st in _DONE:
                         break
             if not url:
                 logger.warning("Higgsfield %s: no result url before timeout", label)
-                return None
+                return None, f"{label}: timed out before the video was ready"
             # Download the finished mp4.
             vr = c.get(url, headers=headers, follow_redirects=True, timeout=120)
             if vr.status_code == 200 and vr.content:
-                return vr.content
+                return vr.content, None
             logger.warning("Higgsfield %s download %s", label, vr.status_code)
-            return None
+            return None, f"{label}: could not download the finished video (HTTP {vr.status_code})"
     except Exception as exc:
         logger.warning("Higgsfield %s error: %s", label, exc)
-        return None
+        return None, f"{label}: {exc}"
 
 
-async def generate_video(model_def: dict[str, Any], prompt: str, image_url: str) -> bytes | None:
-    """Render one clip with a Higgsfield model. Returns mp4 bytes, or None on any failure."""
-    if not enabled() or not image_url:
-        return None
+async def generate_video(
+    model_def: dict[str, Any], prompt: str, image_url: str
+) -> tuple[bytes | None, str | None]:
+    """Render one clip with a Higgsfield model.
+
+    Returns (mp4_bytes, None) on success, or (None, reason) on any failure so the
+    caller can show the real reason (missing credits, model not on plan, …).
+    """
+    if not enabled():
+        return None, "Higgsfield is not configured (missing API key/secret)."
+    if not image_url:
+        return None, "No public frame URL available to seed the video."
     return await asyncio.to_thread(_sync_generate, model_def, prompt, image_url)

@@ -92,14 +92,14 @@ class Settings(BaseSettings):
     higgsfield_timeout_seconds: int = Field(default=360)
     # Extra models to render alongside Veo. label = UI tag; endpoint/model = Higgsfield API.
     # Editable via HIGGSFIELD_MODELS (JSON) without a code change if the catalog shifts.
+    # Defaults = the video models this Higgsfield account actually exposes (DoP tiers).
+    # Seedance/Kling/Gemini are NOT in the account catalogue; enable them on the
+    # Higgsfield plan, then override HIGGSFIELD_MODELS (JSON) — no code change needed.
     higgsfield_models: list[dict[str, Any]] = Field(
         default_factory=lambda: [
-            {"label": "Seedance 2.0 4K", "endpoint": "/v1/image2video/seedance",
-             "model": "seedance-2.0", "params": {"resolution": "4k"}},
-            {"label": "Kling 3.0", "endpoint": "/v1/image2video/kling",
-             "model": "kling-3.0", "params": {}},
-            {"label": "Gemini Omni Flash", "endpoint": "/v1/image2video/gemini",
-             "model": "gemini-omni-flash", "params": {}},
+            {"label": "DoP Turbo", "endpoint": "/v1/image2video/dop", "model": "dop-turbo", "params": {}},
+            {"label": "DoP Standard", "endpoint": "/v1/image2video/dop", "model": "dop-preview", "params": {}},
+            {"label": "DoP Lite", "endpoint": "/v1/image2video/dop", "model": "dop-lite", "params": {}},
         ]
     )
 

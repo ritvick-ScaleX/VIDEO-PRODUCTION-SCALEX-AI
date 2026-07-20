@@ -627,6 +627,7 @@ async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> Gene
         meta.update({
             "video_provider": "storyboard",
             "has_audio": False,
+            "render_error": media.last_video_error() or "Veo did not return any clips.",
             "render_note": "Add GOOGLE_API_KEY (Veo) or HEYGEN_API_KEY to render the video.",
         })
     video.meta = meta

@@ -64,10 +64,16 @@ def _extract_inline_image(resp) -> bytes | None:
 
 # Last image-generation failure reason (surfaced into image meta for debugging).
 _last_image_error: str | None = None
+# Last Veo video-generation failure reason (surfaced into video meta for debugging).
+_last_video_error: str | None = None
 
 
 def last_image_error() -> str | None:
     return _last_image_error
+
+
+def last_video_error() -> str | None:
+    return _last_video_error
 
 
 def _image_configs():
@@ -318,7 +324,9 @@ def _sync_generate_video(
     attempts.append(({}, make_cfg(2)))
     attempts.append(({}, make_cfg(0)))
 
+    global _last_video_error
     operation = None
+    last_err: str | None = None
     for i, (extra, cfg) in enumerate(attempts):
         try:
             operation = client.models.generate_videos(
@@ -326,15 +334,23 @@ def _sync_generate_video(
             )
             break
         except Exception as exc:  # invalid param/mode for this model → try the next
+            last_err = f"{type(exc).__name__}: {str(exc)[:220]}"
             logger.warning("Veo submit attempt %d failed (%s)", i, str(exc)[:200])
             operation = None
             continue
 
     if operation is None:
+        _last_video_error = last_err or "all Veo submit attempts failed"
         return None
     try:
-        return _poll_operation(client, operation)
+        out = _poll_operation(client, operation)
+        if out:
+            _last_video_error = None
+            return out
+        _last_video_error = "Veo finished but returned no video"
+        return None
     except Exception as exc:
+        _last_video_error = f"{type(exc).__name__}: {str(exc)[:220]}"
         logger.warning("Veo poll failed (%s)", exc)
         return None
 

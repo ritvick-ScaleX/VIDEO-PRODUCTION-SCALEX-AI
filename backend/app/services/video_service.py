@@ -48,6 +48,38 @@ def _idea_dict(idea: Idea | None) -> dict | None:
     return {"title": idea.title, "angle": idea.angle, "description": idea.description, "hook": idea.hook}
 
 
+def _compose_script(result: dict) -> str:
+    """The COMPLETE script the presenter delivers.
+
+    The model's own 'script' field is often just the first scene, so rebuild the full
+    thing from every storyboard scene: the end-to-end spoken voiceover first, then a
+    scene-by-scene breakdown. Falls back to the raw script/voiceover if there's no
+    storyboard.
+    """
+    sb = result.get("storyboard") or []
+    spoken = " ".join(
+        str(s.get("voiceover") or "").strip() for s in sb if str(s.get("voiceover") or "").strip()
+    ).strip() or str(result.get("voiceover") or "").strip()
+    if not sb:
+        return str(result.get("script") or spoken or "").strip()
+    out: list[str] = []
+    if spoken:
+        out += ["FULL VOICEOVER (spoken end-to-end):", spoken, "", "— SCENE BREAKDOWN —"]
+    for i, s in enumerate(sb, 1):
+        title = str(s.get("scene") or "").strip()
+        out.append(f"SCENE {i}" + (f" — {title}" if title else ""))
+        if s.get("visual"):
+            out.append(f"  Visual: {str(s['visual']).strip()}")
+        if s.get("voiceover"):
+            out.append(f'  Says: "{str(s["voiceover"]).strip()}"')
+        if s.get("on_screen_text"):
+            out.append(f"  On-screen: {str(s['on_screen_text']).strip()}")
+        if s.get("duration"):
+            out.append(f"  Duration: {str(s['duration']).strip()}")
+        out.append("")
+    return "\n".join(out).strip()
+
+
 async def _draft_from_result(db, product, req, result, idea_id) -> GeneratedVideo:
     brief = assemble_brief(product, product.brand)
     storyboard = result.get("storyboard", [])
@@ -66,7 +98,7 @@ async def _draft_from_result(db, product, req, result, idea_id) -> GeneratedVide
         idea_id=idea_id,
         duration=req.duration,
         format=req.format,
-        script=result.get("script"),
+        script=_compose_script(result),
         storyboard=storyboard,
         voiceover=result.get("voiceover"),
         captions=result.get("captions", []),
@@ -152,7 +184,7 @@ async def reprompt(db: AsyncSession, video_id: str, instructions: str) -> Genera
             schema=video_prompt.SCHEMA,
             mock=lambda: mocks.mock_video(brief, reqd),
         )
-    video.script = result.get("script")
+    video.script = _compose_script(result)
     video.voiceover = result.get("voiceover")
     video.storyboard = result.get("storyboard", [])
     video.captions = result.get("captions", [])

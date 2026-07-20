@@ -8,8 +8,10 @@ poster (fully offline). Model-agnostic `generate` — swap the backend anytime.
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import textwrap
+import uuid
 
 import httpx
 from PIL import Image, ImageDraw, ImageFont
@@ -231,11 +233,13 @@ _EDIT_PROMPTS = {
         "controlled studio light, crisp macro detail on the product, shallow depth of field, "
         "85mm product-photography look, photorealistic. No text overlay, no watermark."
     ),
-    # CREATIVE — lifestyle scene; a model IS allowed but must read as a real photographed human.
+    # CREATIVE — lifestyle scene that ALWAYS features a real human model with the product.
     "creative": (
         "Create a high-end lifestyle advertising photograph with the SAME product as the hero, "
-        "kept EXACTLY identical (shape, colours, label, logo, text). A real human model may "
-        "feature naturally using or holding the product. REALISM IS CRITICAL: this must look like "
+        "kept EXACTLY identical (shape, colours, label, logo, text). A real human model MUST "
+        "feature prominently, naturally using, holding or wearing the product — ALWAYS include a "
+        "believable person in the scene even if the concept/brief does not explicitly mention one; "
+        "pick a model who fits the product and its audience. REALISM IS CRITICAL: this must look like "
         "an actual photograph of a real person — natural skin with visible pores and fine texture, "
         "subtle skin imperfections, real hair strands (flyaways included), natural asymmetric "
         "features, believable hands, honest catch-lights in the eyes. NOT retouched-plastic, NOT "
@@ -258,8 +262,9 @@ _TEXT_PROMPTS = {
         "photorealistic, no text, no watermark"
     ),
     "creative": (
-        "High-end lifestyle advertising photograph featuring {name} as the hero, a real human "
-        "model using it naturally — natural skin texture with visible pores, real hair, candid "
+        "High-end lifestyle advertising photograph featuring {name} as the hero, ALWAYS with a "
+        "real human model using/holding/wearing it naturally (include a person even if not "
+        "mentioned) — natural skin texture with visible pores, real hair, candid "
         "editorial energy, not airbrushed, not CGI, not plastic — cinematic natural lighting, "
         "rich true colour grade, shallow depth of field, negative space for a headline, "
         "photorealistic, no text, no watermark"
@@ -356,8 +361,8 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
         [_TEXT_PROMPTS.get(cat, _TEXT_PROMPTS["creative"]).format(name=product.name), *blocks[1:]]
     )
 
-    created: list[GeneratedImage] = []
-    for i in range(req.count):
+    async def _one(i: int) -> tuple[bytes, str]:
+        """Produce one image (the slow AI part). Run concurrently across the batch."""
         data = None
         provider = "template"
         ref = refs[i % len(refs)] if refs else None  # rotate through selected images
@@ -373,16 +378,23 @@ async def generate(db: AsyncSession, product_id: str, req: ImageGenerateRequest)
             rotated = brand_colors[i % len(brand_colors):] + brand_colors[: i % len(brand_colors)]
             data = render_poster(req.format, headline, cta, rotated, brand_tag)
             provider = "template"
-
         if provider != "template":
             # Kill padding bands the model sometimes returns, then enforce the
-            # requested format's exact aspect so the image is always full-bleed.
+            # requested format's exact aspect (e.g. 9:16 for story) so the image
+            # is always full-bleed at the right ratio.
             data = trim_solid_border(data)
             data = crop_to_aspect(data, fmt_w, fmt_h)
+        return data, provider
 
-        key = f"products/{product_id}/images/{cat}-{product_id[:8]}-{i}-{len(created)}-{abs(hash(edit_prompt)) % 100000}.png"
+    # Generate the whole batch CONCURRENTLY — a sequential loop was slow enough to
+    # exceed the edge proxy timeout, so images only appeared after a manual refresh.
+    results = await asyncio.gather(*[_one(i) for i in range(req.count)])
+
+    created: list[GeneratedImage] = []
+    w, h = FORMAT_DIMS.get(req.format, (1080, 1080))
+    for i, (data, provider) in enumerate(results):
+        key = f"products/{product_id}/images/{cat}-{product_id[:8]}-{i}-{uuid.uuid4().hex[:8]}.png"
         url = storage.save_bytes(key, data)
-        w, h = FORMAT_DIMS.get(req.format, (1080, 1080))
         img = GeneratedImage(
             product_id=product_id,
             category=cat,

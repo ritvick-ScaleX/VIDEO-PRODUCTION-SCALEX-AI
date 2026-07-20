@@ -572,7 +572,7 @@ function ImagesTab({
         {isLoading ? (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
-              <Skeleton key={i} className="aspect-square" />
+              <Skeleton key={i} className={format === "story" ? "aspect-[9/16]" : "aspect-square"} />
             ))}
           </div>
         ) : generate.isPending || (images && images.length > 0) ? (
@@ -582,7 +582,10 @@ function ImagesTab({
               Array.from({ length: Math.max(1, Number(count)) }).map((_, i) => (
                 <div
                   key={`pending-${i}`}
-                  className="flex aspect-square flex-col items-center justify-center gap-2 rounded-2xl glass ring-1 ring-white/10"
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-2 rounded-2xl glass ring-1 ring-white/10",
+                    format === "story" ? "aspect-[9/16]" : "aspect-square"
+                  )}
                 >
                   <Spinner className="h-5 w-5 text-primary" />
                   <span className="text-xs text-muted-foreground">Generating…</span>
@@ -611,7 +614,8 @@ function ImagesTab({
                       src={img.url}
                       alt={img.prompt ?? "Generated"}
                       className={cn(
-                        "aspect-square w-full cursor-zoom-in object-cover",
+                        "w-full cursor-zoom-in object-cover",
+                        img.format === "story" ? "aspect-[9/16]" : "aspect-square",
                         img.review_status === "rejected" && "opacity-60"
                       )}
                     />

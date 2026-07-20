@@ -576,14 +576,15 @@ function ImagesTab({
             ))}
           </div>
         ) : generate.isPending || (images && images.length > 0) ? (
-          <StaggerGroup className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+          <StaggerGroup className="columns-2 gap-4 sm:columns-3">
+            {/* Masonry catalog — mixed square / 9:16 story tiles pack tightly, no gaps. */}
             {/* Placeholder tiles while generating — new images drop in here automatically. */}
             {generate.isPending &&
               Array.from({ length: Math.max(1, Number(count)) }).map((_, i) => (
                 <div
                   key={`pending-${i}`}
                   className={cn(
-                    "flex flex-col items-center justify-center gap-2 rounded-2xl glass ring-1 ring-white/10",
+                    "mb-4 flex break-inside-avoid flex-col items-center justify-center gap-2 rounded-2xl glass ring-1 ring-white/10",
                     format === "story" ? "aspect-[9/16]" : "aspect-square"
                   )}
                 >
@@ -592,7 +593,7 @@ function ImagesTab({
                 </div>
               ))}
             {(images ?? []).map((img) => (
-              <FadeItem key={img.id}>
+              <FadeItem key={img.id} className="mb-4 break-inside-avoid">
                 <div
                   className={cn(
                     "group relative overflow-hidden rounded-2xl ring-1 transition",

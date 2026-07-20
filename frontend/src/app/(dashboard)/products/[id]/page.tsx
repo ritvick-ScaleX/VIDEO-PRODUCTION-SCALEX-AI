@@ -719,16 +719,36 @@ function IdeasTab({
   onOpenImageIdea: (id: string) => void;
 }) {
   const { data: ideas, isLoading } = useIdeas(productId);
+  const { data: videos } = useVideos(productId);
+  const { data: images } = useImages(productId);
   const generate = useGenerateIdeas(productId);
   const select = useSelectIdea(productId);
   const [prompt, setPrompt] = React.useState("");
+
+  // "Done" = an asset was actually CREATED from this idea (a rendered video, or a
+  // generated image) — NOT merely that the idea was opened/selected.
+  const doneVideoIdeaIds = React.useMemo(
+    () => new Set((videos ?? []).filter((v) => v.idea_id && v.video_url).map((v) => v.idea_id as string)),
+    [videos]
+  );
+  const doneImageIdeaIds = React.useMemo(
+    () =>
+      new Set(
+        (images ?? [])
+          .map((i) => (i.meta as { idea_id?: string | null })?.idea_id)
+          .filter((x): x is string => !!x)
+      ),
+    [images]
+  );
+  const isDone = (idea: Idea) =>
+    idea.kind === "image" ? doneImageIdeaIds.has(idea.id) : doneVideoIdeaIds.has(idea.id);
 
   function run() {
     if (!prompt.trim()) return;
     generate.mutate({ prompt: prompt.trim(), count: 6 });
   }
   function openVideo(id: string) {
-    // Mark it done + carry it into the Video tab.
+    // Selecting carries the idea into the Video tab; it does NOT mark it done.
     select.mutate(id, { onSuccess: () => onOpenIdea(id) });
   }
 
@@ -782,7 +802,7 @@ function IdeasTab({
               <div className="grid gap-4 sm:grid-cols-2">
                 {imageIdeas.map((idea) => (
                   <FadeUp key={idea.id}>
-                    <IdeaCard idea={idea} busy={false} onOpen={() => onOpenImageIdea(idea.id)} />
+                    <IdeaCard idea={idea} busy={false} done={isDone(idea)} onOpen={() => onOpenImageIdea(idea.id)} />
                   </FadeUp>
                 ))}
               </div>
@@ -796,7 +816,7 @@ function IdeasTab({
               <div className="grid gap-4 sm:grid-cols-2">
                 {videoIdeas.map((idea) => (
                   <FadeUp key={idea.id}>
-                    <IdeaCard idea={idea} busy={select.isPending} onOpen={() => openVideo(idea.id)} />
+                    <IdeaCard idea={idea} busy={select.isPending} done={isDone(idea)} onOpen={() => openVideo(idea.id)} />
                   </FadeUp>
                 ))}
               </div>
@@ -808,8 +828,7 @@ function IdeasTab({
   );
 }
 
-function IdeaCard({ idea, onOpen, busy }: { idea: Idea; onOpen: () => void; busy: boolean }) {
-  const done = idea.status === "selected";
+function IdeaCard({ idea, onOpen, busy, done }: { idea: Idea; onOpen: () => void; busy: boolean; done: boolean }) {
   const isImage = idea.kind === "image";
   return (
     <Card className={"group h-full transition-all hover-lift " + (done ? "ring-2 ring-primary/60" : "")}>

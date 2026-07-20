@@ -85,7 +85,14 @@ class Settings(BaseSettings):
         )
     )
 
-    # ---- Higgsfield (extra video models: Seedance, Kling, Gemini) ----
+    # ---- Extra video models (multi-model variants alongside Veo) ----
+    # OFF for now: Google Veo is the sole video engine until a provider that
+    # exposes multiple video models from ONE API is wired up. Flip to true (and
+    # point the provider config below at it) to bring the tagged variants back —
+    # no code change needed.
+    video_variants_enabled: bool = Field(default=False)
+
+    # ---- Higgsfield (dormant multi-model provider; gated by the flag above) ----
     higgsfield_api_key: str = Field(default="")   # KEY_ID
     higgsfield_secret: str = Field(default="")    # KEY_SECRET
     higgsfield_base_url: str = Field(default="https://platform.higgsfield.ai")

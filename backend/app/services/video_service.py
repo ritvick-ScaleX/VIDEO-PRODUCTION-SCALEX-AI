@@ -345,9 +345,11 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
 
 async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> tuple[GeneratedVideo, list[str]]:
     """Flip the video to 'rendering' and return at once — the minutes-long work runs
-    in the background. The primary video is the Veo render (tagged 'Custom Model');
-    when Higgsfield is configured, one tagged SIBLING video per extra model (Seedance,
-    Kling, Gemini…) is also created and rendered. Returns (primary, sibling_ids)."""
+    in the background. The primary video is the Veo render (tagged 'Custom Model').
+    Extra tagged SIBLING videos (one per extra model) are only spawned when the
+    multi-model feature is switched on (settings.video_variants_enabled) AND a
+    provider is configured — off by default, so Veo is the sole engine for now.
+    Returns (primary, sibling_ids)."""
     video = await db.get(GeneratedVideo, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -360,8 +362,9 @@ async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> tupl
     await db.flush()
 
     sibling_ids: list[str] = []
-    # Only the primary spawns siblings (variants never spawn their own).
-    if higgsfield.enabled() and not meta.get("is_variant"):
+    # Only the primary spawns siblings (variants never spawn their own), and only
+    # when the multi-model feature is switched on. Off by default → Veo only.
+    if settings.video_variants_enabled and higgsfield.enabled() and not meta.get("is_variant"):
         carry = {k: meta[k] for k in ("character", "voice", "setting", "frame_keys", "thumb_key") if k in meta}
         for mdef in higgsfield.models():
             sib = GeneratedVideo(

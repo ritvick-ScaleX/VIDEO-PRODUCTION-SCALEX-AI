@@ -54,7 +54,7 @@ async def render_video(product_id: str, video_id: str, db: AsyncSession = Depend
     video, sibling_ids = await video_service.begin_render(db, product_id, video_id)
     await db.commit()  # persist 'rendering' + siblings before the tasks read them
     asyncio.create_task(video_service.render_background(product_id, video_id))
-    for sid in sibling_ids:  # extra models (Seedance / Kling / Gemini) via Higgsfield
+    for sid in sibling_ids:  # extra tagged model variants (feature off by default)
         asyncio.create_task(video_service.render_higgsfield_background(product_id, sid))
     return video
 

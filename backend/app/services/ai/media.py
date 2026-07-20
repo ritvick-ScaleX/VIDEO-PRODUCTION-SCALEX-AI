@@ -334,7 +334,9 @@ def _sync_generate_video(
             )
             break
         except Exception as exc:  # invalid param/mode for this model → try the next
-            last_err = f"{type(exc).__name__}: {str(exc)[:220]}"
+            # Capture the FULL error — Google's 429 body carries the QuotaFailure
+            # details (quota id + tier + limit value) we need to diagnose.
+            last_err = f"{type(exc).__name__}: {str(exc)[:1500]}"
             logger.warning("Veo submit attempt %d failed (%s)", i, str(exc)[:200])
             operation = None
             continue
@@ -350,7 +352,7 @@ def _sync_generate_video(
         _last_video_error = "Veo finished but returned no video"
         return None
     except Exception as exc:
-        _last_video_error = f"{type(exc).__name__}: {str(exc)[:220]}"
+        _last_video_error = f"{type(exc).__name__}: {str(exc)[:1500]}"
         logger.warning("Veo poll failed (%s)", exc)
         return None
 

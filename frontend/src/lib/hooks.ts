@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 import { toast } from "sonner";
 import { api } from "./api";
-import type { Brand, GeneratedImage, Product } from "./types";
+import type { Brand, GeneratedImage, GeneratedVideo, Product } from "./types";
 
 export const qk = {
   brands: ["brands"] as const,
@@ -345,6 +345,21 @@ export function useRenderVideo(pid: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.videos(pid) });
       toast.success("Rendering started — this takes a few minutes. It'll appear here automatically.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+export function useDeleteVideo(pid: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.videos.remove(pid, id),
+    onSuccess: (_res, id) => {
+      // Drop it from the cache immediately, then reconcile with the server.
+      qc.setQueryData<GeneratedVideo[]>(qk.videos(pid), (old) =>
+        (old ?? []).filter((v) => v.id !== id)
+      );
+      qc.invalidateQueries({ queryKey: qk.videos(pid) });
+      toast.success("Reel deleted");
     },
     onError: (e: Error) => toast.error(e.message),
   });

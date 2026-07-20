@@ -20,6 +20,7 @@ import {
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   Wand2,
 } from "lucide-react";
 import Link from "next/link";
@@ -57,6 +58,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   useAnalyze,
   useCopy,
+  useDeleteVideo,
   useGenerateCopy,
   useGenerateFrames,
   useGenerateIdeas,
@@ -955,9 +957,12 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
   const reprompt = useRepromptVideo(productId);
   const frames = useGenerateFrames(productId);
   const render = useRenderVideo(productId);
+  const remove = useDeleteVideo(productId);
 
   const [script, setScript] = React.useState(video.script ?? "");
   const [instructions, setInstructions] = React.useState("");
+  const [preview, setPreview] = React.useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = React.useState(false);
   const dirty = script !== (video.script ?? "");
 
   const meta = (video.meta ?? {}) as { model_label?: string; is_variant?: boolean };
@@ -977,9 +982,37 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
             <Film className="h-3 w-3" /> {modelLabel}
           </Badge>
         </CardTitle>
-        <Badge variant={VIDEO_STATUS_VARIANT[video.status] ?? "outline"}>
-          {titleCase(video.status.replace("_", " "))}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge variant={VIDEO_STATUS_VARIANT[video.status] ?? "outline"}>
+            {titleCase(video.status.replace("_", " "))}
+          </Badge>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => remove.mutate(video.id)}
+                disabled={remove.isPending}
+              >
+                {remove.isPending ? <Spinner /> : "Delete"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(false)}>
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+              onClick={() => setConfirmDelete(true)}
+              aria-label="Delete this reel"
+              title="Delete this reel"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-5">
         {/* Rendered video / thumbnail */}
@@ -1078,13 +1111,20 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
             <Label>Frames</Label>
             <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
               {video.frame_urls.map((f, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
+                <button
                   key={i}
-                  src={f}
-                  alt={`frame ${i + 1}`}
-                  className="aspect-[9/16] w-full rounded-xl object-cover ring-1 ring-white/10"
-                />
+                  type="button"
+                  onClick={() => setPreview(f)}
+                  className="block overflow-hidden rounded-xl ring-1 ring-white/10 transition hover:ring-white/30"
+                  aria-label={`Preview frame ${i + 1}`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={f}
+                    alt={`frame ${i + 1}`}
+                    className="aspect-[9/16] w-full cursor-zoom-in object-cover"
+                  />
+                </button>
               ))}
             </div>
           </div>
@@ -1126,8 +1166,7 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
               )}
               {!rendering && video.frame_urls.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  Render also produces variants with Seedance, Kling &amp; Gemini when Higgsfield is
-                  configured — each appears as its own tagged card.
+                  Every generated frame becomes a shot in the final reel, in order.
                 </p>
               )}
             </>
@@ -1135,6 +1174,7 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
         })()}
         </>
         )}
+        <ImageLightbox src={preview} onClose={() => setPreview(null)} />
       </CardContent>
     </Card>
   );

@@ -6,7 +6,11 @@ from typing import Any
 
 SYSTEM = (
     "You are an award-winning short-form ad director and scriptwriter for the Indian "
-    "market (think scroll-stopping Instagram Reels and YouTube Shorts). You write "
+    "market (think scroll-stopping Instagram Reels and YouTube Shorts). Write it as "
+    "AUTHENTIC UGC (user-generated content): a real person casually talking to their own "
+    "phone camera — a genuine, relatable, first-person testimonial/recommendation from a real "
+    "customer, NOT a slick brand voiceover. Natural, conversational, a little imperfect, like a "
+    "creator filming themselves at home. You write "
     "natural Hindi-English (Hinglish) spoken lines in Roman script that a real Indian "
     "presenter would say to camera — warm, punchy, culturally native, never translated-"
     "sounding. Craft rules: (1) open with a 1.5-second pattern-interrupt HOOK that names "
@@ -67,6 +71,9 @@ def build_prompt(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any
         f"CHOSEN IDEA:\n{json.dumps(idea, indent=2, default=str)}\n\n"
         f"BRAND & PRODUCT:\n{json.dumps(brief, indent=2, default=str)}\n"
         f"{extra}\n\n"
+        "STYLE (important): this is an authentic UGC ad — the presenter is a real customer/creator "
+        "filming themselves on a phone, casual, honest and believable, never a polished studio "
+        "spot. Each 'visual' should read like a candid handheld/selfie phone shot in a real home. "
         "The spoken lines ('voiceover' and each scene's voiceover) must be in "
         "natural Hinglish (Hindi + English mixed, Roman script), as an Indian "
         "presenter would speak. Start with a strong hook in the first scene. Each "

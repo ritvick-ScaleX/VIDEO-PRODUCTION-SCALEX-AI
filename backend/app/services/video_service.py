@@ -238,10 +238,11 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
         "but the presenter stays the identical person."
     )
     realism = (
-        "This must look like a real photograph of a real person: natural skin with visible "
-        "pores and texture, real hair strands, believable hands, honest eyes — never plastic, "
-        "airbrushed, waxy or CGI-like. Photorealistic, motivated natural lighting, shallow "
-        "depth of field, tasteful colour grade, editorial commercial quality."
+        "This must look like a real, candid smartphone photo a genuine person snapped at home — "
+        "authentic UGC style: natural available indoor light, true-to-life colours, the mild "
+        "imperfection of a phone camera, NOT a glossy studio or editorial shoot. Real skin with "
+        "visible pores and texture, real hair strands, believable hands and honest eyes — never "
+        "plastic, airbrushed, waxy or CGI-like."
     )
 
     frame_urls: list[str] = []
@@ -258,8 +259,9 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
             else "Scene: "
         )
         prompt = (
-            f"Cinematic film still (key frame {i + 1}) for a high-end {video.format} ad, "
-            f"{aw}:{ah} composition. {consistency} {continuation}{scene.get('visual', '')}. "
+            f"Candid, authentic UGC-style smartphone photo (key frame {i + 1}) for a "
+            f"real-feeling {video.format} ad, {aw}:{ah} composition. {consistency} "
+            f"{continuation}{scene.get('visual', '')}. "
             f"The product is clearly visible and EXACTLY as in the reference — same shape, "
             f"colour, material, label, logo and text; never redesign or replace it. {realism} "
             f"No text overlay, no subtitles, no watermark."
@@ -316,29 +318,33 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
     )
     colors = ", ".join((brief.get("brand_colors") or [])[:2])
     return (
-        f"Photorealistic, cinematic {video.format} product commercial for {name}. {anim}{angle}. "
-        f"CONSISTENCY (critical — this is one shot of a multi-shot ad): the presenter is "
-        f"{character} — the SAME person with the identical face, hair and build in every shot of "
-        f"this ad; never swap the person. Default location: {setting_desc} — keep it unless this "
-        f"shot's script clearly moves the story to a new scripted location. "
-        f"SETTING must feel like a REAL, authentic Indian home / everyday Indian location — "
-        f"believable, lived-in, natural — never a generic studio or an artificial AI-looking "
-        f"background. "
-        f"VOICE (must be identical in every shot of the ad — do NOT change voice between scenes): "
-        f"{voice}. "
-        f"Shot on a professional cinema camera: lifelike human with natural skin texture and pores, "
-        f"realistic fabric and material detail, true-to-life lighting with soft natural shadows, "
-        f"35mm lens, shallow depth of field, gentle organic camera movement (subtle handheld/dolly), "
-        f"24fps film look with subtle motion blur — a real filmed advertisement, never CGI or "
-        f"AI-looking. "
+        f"Authentic UGC-style {video.format} video for {name} — must look like real "
+        f"user-generated content a genuine customer filmed on their own phone, NOT a polished "
+        f"studio commercial. {anim}{angle}. "
+        f"UGC LOOK: shot handheld on a modern smartphone (natural selfie / arm's-length, or a "
+        f"friend filming), casual and candid, slightly imperfect framing, subtle natural camera "
+        f"shake, real available indoor lighting — the honest, relatable feel of an Instagram Reel "
+        f"or TikTok testimonial. Not cinematic, not staged, not an ad set. "
+        f"CONSISTENCY (critical — this is one shot of a multi-shot clip): the presenter is "
+        f"{character} — the SAME person with the identical face, hair and build in every shot; "
+        f"never swap the person. Default location: {setting_desc} — keep it unless this shot's "
+        f"script clearly moves the story to a new scripted location. The setting is a REAL, "
+        f"authentic Indian home / everyday Indian place — lived-in and believable, exactly where a "
+        f"real person would film themselves; never a studio or an artificial AI-looking backdrop. "
+        f"VOICE (must be identical in every shot — do NOT change voice between scenes): {voice}. "
+        f"REALISM: a real human with natural skin texture, visible pores and fine hair, believable "
+        f"hands and honest eyes — never plastic, waxy, airbrushed, CGI or AI-looking. "
         f"PRODUCT FIDELITY — the featured product MUST be exactly the product in the reference "
         f"image: identical shape, colour, material, label, logo and text. Never redesign, restyle, "
-        f"recolour or substitute it; keep it in sharp focus and clearly visible. "
-        f"LIP-SYNC (critical): the presenter faces the camera and SPEAKS the line; their lip and "
-        f"mouth movements must precisely match each spoken word, natural jaw and facial motion, "
-        f"perfectly time-aligned to the audio. Speaking in {settings.veo_language}, saying exactly: "
-        f"\"{line[:220]}\". Crystal-clear spoken audio, only this one voice, no background-narration "
-        f"clutter. Absolutely no on-screen text, subtitles, captions or watermark."
+        f"recolour or substitute it; keep it in focus and clearly visible. "
+        f"LIP-SYNC (the single most important thing): the presenter talks straight to the phone "
+        f"camera and their mouth, lips, teeth, tongue and jaw move in PERFECT frame-accurate sync "
+        f"with every spoken syllable — natural co-articulation, micro facial expressions, real "
+        f"blinking and small head movement, absolutely zero robotic, dubbed or out-of-sync feel; "
+        f"it must be indistinguishable from a real person actually speaking. Speaking in "
+        f"{settings.veo_language}, saying exactly: \"{line[:220]}\". One clear natural voice only, "
+        f"clean spoken audio, no background-narration clutter. Absolutely no on-screen text, "
+        f"subtitles, captions or watermark."
         + (f" Subtle brand-colour accents in the setting: {colors}." if colors else "")
     )
 
@@ -545,14 +551,32 @@ async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> Gene
 
 
 async def _render_veo(brief, product, video, script_text, frame_seeds, model_seed, product_ref=None):
-    n = max(1, settings.veo_shots)
-    segments = _split_script(script_text, n)
+    scenes = list(video.storyboard or [])
+    # ONE shot per generated frame → every frame makes it into the reel (previously a
+    # fixed 3 shots silently dropped the tail frames whenever the storyboard had more).
+    # Fall back to the configured shot count only when there are no frames.
+    n = len(frame_seeds) if frame_seeds else max(1, settings.veo_shots)
+    split = _split_script(script_text, n)
+
+    def _line_for(i: int) -> str:
+        # Prefer the matching scene's own voiceover so each frame's shot stays on-script;
+        # otherwise fall back to an even split of the full script.
+        if i < len(scenes):
+            sv = str(scenes[i].get("voiceover") or "").strip()
+            if sv:
+                return sv
+        if split:
+            return split[i] if i < len(split) else split[-1]
+        return script_text
+
     # product_ref = the authentic product photo → passed to Veo as an ASSET reference so
     # the EXACT product appears in every shot (not just the composite seed frame).
     tasks = []
-    for i, seg in enumerate(segments):
+    for i in range(n):
         seed = frame_seeds[i] if i < len(frame_seeds) else (frame_seeds[-1] if frame_seeds else model_seed)
-        prompt = _veo_shot_prompt(brief, product, video, seg, _SHOT_ANGLES[i % len(_SHOT_ANGLES)], seed is not None)
+        prompt = _veo_shot_prompt(
+            brief, product, video, _line_for(i), _SHOT_ANGLES[i % len(_SHOT_ANGLES)], seed is not None
+        )
         tasks.append(
             media.generate_video(prompt, video.format, image_bytes=seed, product_bytes=product_ref)
         )

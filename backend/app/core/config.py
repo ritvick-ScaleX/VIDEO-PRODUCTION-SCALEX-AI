@@ -66,9 +66,10 @@ class Settings(BaseSettings):
     # Number of angle/shot clips to generate and stitch into one ad (1 = single shot).
     # Only used when there are no storyboard frames; otherwise one shot per frame.
     veo_shots: int = Field(default=3)
-    # Max Veo clips generated at once. Firing every shot concurrently gets some calls
-    # rate-limited and dropped (the reel then loses frames); a small cap + retry avoids it.
-    veo_concurrency: int = Field(default=3)
+    # Max Veo clips generated at once. Firing every shot concurrently trips Veo's
+    # per-minute rate limit and drops clips (the reel loses frames); a low cap spreads
+    # them out so each one lands without burning quota on retries.
+    veo_concurrency: int = Field(default=2)
     # Output resolution for realism ("720p" | "1080p"). Higher = crisper but pricier.
     veo_resolution: str = Field(default="1080p")
     # Presenter + spoken language for the video model.

@@ -673,13 +673,11 @@ async def _render_veo(brief, product, video, script_text, frame_seeds, model_see
             brief, product, video, _line_for(i), _SHOT_ANGLES[i % len(_SHOT_ANGLES)], seed is not None
         )
         async with sem:
-            for _attempt in range(2):
-                clip = await media.generate_video(
-                    prompt, video.format, image_bytes=seed, product_bytes=product_ref
-                )
-                if clip:
-                    return clip
-        return None
+            # Single attempt: low concurrency already avoids the per-minute rate limit,
+            # and retrying a hard quota (429) error just burns more quota for nothing.
+            return await media.generate_video(
+                prompt, video.format, image_bytes=seed, product_bytes=product_ref
+            )
 
     results = await asyncio.gather(*[_clip(i) for i in range(n)])
     clips = [c for c in results if c]

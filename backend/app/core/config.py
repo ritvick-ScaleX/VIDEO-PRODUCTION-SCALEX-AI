@@ -64,7 +64,11 @@ class Settings(BaseSettings):
     veo_model: str = Field(default="veo-3.1-fast-generate-preview")
     veo_timeout_seconds: int = Field(default=240)
     # Number of angle/shot clips to generate and stitch into one ad (1 = single shot).
+    # Only used when there are no storyboard frames; otherwise one shot per frame.
     veo_shots: int = Field(default=3)
+    # Max Veo clips generated at once. Firing every shot concurrently gets some calls
+    # rate-limited and dropped (the reel then loses frames); a small cap + retry avoids it.
+    veo_concurrency: int = Field(default=3)
     # Output resolution for realism ("720p" | "1080p"). Higher = crisper but pricier.
     veo_resolution: str = Field(default="1080p")
     # Presenter + spoken language for the video model.

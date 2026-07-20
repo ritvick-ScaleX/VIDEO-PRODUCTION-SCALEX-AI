@@ -639,17 +639,29 @@ async def _render_veo(brief, product, video, script_text, frame_seeds, model_see
 
     # product_ref = the authentic product photo → passed to Veo as an ASSET reference so
     # the EXACT product appears in every shot (not just the composite seed frame).
-    tasks = []
-    for i in range(n):
+    # Bounded concurrency + one retry per shot: firing every clip at once gets some Veo
+    # calls rate-limited and silently dropped, which loses frames from the final reel.
+    sem = asyncio.Semaphore(max(1, settings.veo_concurrency))
+
+    async def _clip(i: int):
         seed = frame_seeds[i] if i < len(frame_seeds) else (frame_seeds[-1] if frame_seeds else model_seed)
         prompt = _veo_shot_prompt(
             brief, product, video, _line_for(i), _SHOT_ANGLES[i % len(_SHOT_ANGLES)], seed is not None
         )
-        tasks.append(
-            media.generate_video(prompt, video.format, image_bytes=seed, product_bytes=product_ref)
-        )
-    results = await asyncio.gather(*tasks)
+        async with sem:
+            for _attempt in range(2):
+                clip = await media.generate_video(
+                    prompt, video.format, image_bytes=seed, product_bytes=product_ref
+                )
+                if clip:
+                    return clip
+        return None
+
+    results = await asyncio.gather(*[_clip(i) for i in range(n)])
     clips = [c for c in results if c]
+    logger.info("Veo render: %d/%d shots succeeded for video %s", len(clips), n, video.id)
+    # Record how many shots made the cut so it's visible/debuggable in the UI.
+    video.meta = {**(video.meta or {}), "shots": f"{len(clips)}/{n}"}
     if not clips:
         return None, "storyboard"
     # Target frame: full-bleed vertical for reels/stories, else landscape.

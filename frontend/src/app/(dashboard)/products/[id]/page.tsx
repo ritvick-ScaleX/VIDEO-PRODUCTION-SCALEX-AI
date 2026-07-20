@@ -26,7 +26,7 @@ import {
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import * as React from "react";
-import { FadeItem, FadeUp, StaggerGroup } from "@/components/animations/motion";
+import { FadeUp } from "@/components/animations/motion";
 import { CopyButton } from "@/components/shared/copy-button";
 import { ImageLightbox } from "@/components/shared/image-lightbox";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -576,8 +576,9 @@ function ImagesTab({
             ))}
           </div>
         ) : generate.isPending || (images && images.length > 0) ? (
-          <StaggerGroup className="columns-2 gap-4 sm:columns-3">
+          <div className="columns-2 gap-4 sm:columns-3">
             {/* Masonry catalog — mixed square / 9:16 story tiles pack tightly, no gaps. */}
+            {/* Mount-based fade (not viewport-gated) so freshly generated images appear at once. */}
             {/* Placeholder tiles while generating — new images drop in here automatically. */}
             {generate.isPending &&
               Array.from({ length: Math.max(1, Number(count)) }).map((_, i) => (
@@ -593,7 +594,7 @@ function ImagesTab({
                 </div>
               ))}
             {(images ?? []).map((img) => (
-              <FadeItem key={img.id} className="mb-4 break-inside-avoid">
+              <FadeUp key={img.id} className="mb-4 break-inside-avoid">
                 <div
                   className={cn(
                     "group relative overflow-hidden rounded-2xl ring-1 transition",
@@ -667,9 +668,9 @@ function ImagesTab({
                     </span>
                   </div>
                 </div>
-              </FadeItem>
+              </FadeUp>
             ))}
-          </StaggerGroup>
+          </div>
         ) : (
           <EmptyState icon={ImageIcon} title="No images yet" description="Generate your first product images on the left." />
         )}
@@ -778,13 +779,13 @@ function IdeasTab({
               <h3 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
                 <ImageIcon className="h-5 w-5 text-accent" /> Image ideas
               </h3>
-              <StaggerGroup className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {imageIdeas.map((idea) => (
-                  <FadeItem key={idea.id}>
+                  <FadeUp key={idea.id}>
                     <IdeaCard idea={idea} busy={false} onOpen={() => onOpenImageIdea(idea.id)} />
-                  </FadeItem>
+                  </FadeUp>
                 ))}
-              </StaggerGroup>
+              </div>
             </div>
           )}
           {videoIdeas.length > 0 && (
@@ -792,13 +793,13 @@ function IdeasTab({
               <h3 className="mb-3 flex items-center gap-2 font-display text-lg font-semibold">
                 <Film className="h-5 w-5 text-primary" /> Video ideas
               </h3>
-              <StaggerGroup className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {videoIdeas.map((idea) => (
-                  <FadeItem key={idea.id}>
+                  <FadeUp key={idea.id}>
                     <IdeaCard idea={idea} busy={select.isPending} onOpen={() => openVideo(idea.id)} />
-                  </FadeItem>
+                  </FadeUp>
                 ))}
-              </StaggerGroup>
+              </div>
             </div>
           )}
         </div>
@@ -1253,11 +1254,11 @@ function CopyTab({ productId }: { productId: string }) {
         ) : !copies || copies.length === 0 ? (
           <EmptyState icon={FileText} title="No copy yet" description="Pick a platform and tone, then generate ad copy variations." />
         ) : (
-          <StaggerGroup className="space-y-4">
+          <div className="space-y-4">
             {copies.flatMap((c) =>
               (c.variations.length ? c.variations : [{ headline: c.headline ?? "", body: c.body ?? "", cta: c.cta ?? "" }]).map(
                 (v, i) => (
-                  <FadeItem key={`${c.id}-${i}`}>
+                  <FadeUp key={`${c.id}-${i}`}>
                     <Card>
                       <CardContent className="space-y-2 p-5">
                         <div className="flex items-center justify-between gap-2">
@@ -1276,11 +1277,11 @@ function CopyTab({ productId }: { productId: string }) {
                         {v.cta && <p className="text-sm font-medium text-primary">{v.cta}</p>}
                       </CardContent>
                     </Card>
-                  </FadeItem>
+                  </FadeUp>
                 )
               )
             )}
-          </StaggerGroup>
+          </div>
         )}
       </div>
     </div>

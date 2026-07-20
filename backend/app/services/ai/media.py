@@ -154,6 +154,38 @@ async def edit_image(reference: bytes, prompt: str) -> bytes | None:
     return await asyncio.to_thread(_sync_edit_image, reference, prompt)
 
 
+def _sync_compose_images(refs: list[bytes], prompt: str) -> bytes | None:
+    """Multi-image edit: condition on SEVERAL images at once (e.g. a scene + the real
+    product photo) so the model copies the exact product instead of redrawing it."""
+    global _last_image_error
+    from google.genai import types
+
+    client = _client()
+    parts = [types.Part.from_bytes(data=b, mime_type=_sniff_mime(b)) for b in refs if b]
+    for cfg in _image_configs():
+        try:
+            kwargs: dict[str, Any] = {"model": settings.nano_banana_model, "contents": [prompt, *parts]}
+            if cfg is not None:
+                kwargs["config"] = cfg
+            resp = client.models.generate_content(**kwargs)
+            img = _extract_inline_image(resp)
+            if img:
+                _last_image_error = None
+                return img
+            _last_image_error = "model returned no inline image"
+        except Exception as exc:
+            _last_image_error = f"{type(exc).__name__}: {str(exc)[:200]}"
+    logger.warning("Nano Banana compose failed (%s)", _last_image_error)
+    return None
+
+
+async def compose_images(references: list[bytes], prompt: str) -> bytes | None:
+    """Edit conditioned on multiple reference images (scene + exact product, …)."""
+    if not images_enabled() or not references:
+        return None
+    return await asyncio.to_thread(_sync_compose_images, references, prompt)
+
+
 # --------------------------------------------------------------------------- #
 # Video (Veo — includes voiceover + music in the generated audio track)
 # --------------------------------------------------------------------------- #

@@ -263,6 +263,9 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
     product = await _load(db, product_id)
     brief = assemble_brief(product, product.brand)
     seed = await _model_seed(db, product)
+    # The REAL product photo — re-anchored into every frame so Nano Banana can't
+    # quietly redraw it into a different container (jar → tube) during scene edits.
+    product_ref = await _product_photo(db, product)
 
     vmeta = dict(video.meta or {})
     character = vmeta.get("character") or settings.veo_presenter
@@ -309,15 +312,35 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
             f"No text overlay, no subtitles, no watermark."
         )
         data = None
+        is_ai = False
         if base is not None:
             data = await media.edit_image(base, prompt)
+            if data:
+                is_ai = True
         if data is None and media.images_enabled():
             data = await media.generate_image(prompt, video.format)
+            if data:
+                is_ai = True
         if data is None:
             data = image_service.render_poster(
                 "story" if vertical else "landscape", scene.get("on_screen_text") or product.name,
                 brief.get("cta") or "", brief.get("brand_colors") or ["#6D5EF8", "#22D3EE"], product.name,
             )
+        # Re-anchor the EXACT product from the real photo (the model tends to redraw
+        # it into a generic container during large scene edits).
+        if is_ai and product_ref and media.images_enabled():
+            fixed = await media.compose_images(
+                [data, product_ref],
+                "Keep the person, pose, hands, framing and background of the FIRST image exactly as "
+                "they are. The product the person is holding or showing MUST be the EXACT product "
+                "in the SECOND image — copy its real container FORMAT (jar/tub/bottle/tube/pump), "
+                "overall shape and proportions, lid/cap, label layout, logo, colours and every bit "
+                "of text pixel-faithfully; only adapt its scale, angle and lighting so it sits "
+                "naturally in the scene. Do NOT invent or substitute a different product, and do "
+                "not change anything else in the image.",
+            )
+            if fixed:
+                data = fixed
         data = image_service.crop_to_aspect(data, aw, ah)  # full-bleed seeds → no letterboxing
         if anchor is None and data is not None:
             anchor = data

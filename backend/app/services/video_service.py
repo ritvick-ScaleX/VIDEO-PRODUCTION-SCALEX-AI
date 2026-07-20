@@ -338,46 +338,70 @@ def _split_script(text: str, n: int) -> list[str]:
     return [" ".join(sents[i : i + size]) for i in range(0, len(sents), size)][:n]
 
 
+# Full-depth, paragraph-form Veo 3.1 shot brief (UGC meta-ad). Designed as a real
+# creative-team shot note: model, background, the exact spoken meta-ad line, product
+# fidelity to the attached reference image, and frame-accurate lip-sync. Filled via
+# str.format() — every {placeholder} below is supplied in _veo_shot_prompt().
+_VEO_PROMPT_TEMPLATE = (
+    "This is one shot of a multi-shot vertical {format} ad for {name}, and it must read as "
+    "scroll-stopping, organic user-generated content that a real Indian customer just pulled out "
+    "their own phone to film — candid, handheld at arm's length or as a natural front-camera selfie "
+    "(or a friend holding the phone just out of frame), slightly off-centre framing with gentle "
+    "organic micro-shake, real autofocus hunt and only the available light of the room, the honest "
+    "phone-shot feel of an Instagram/Facebook Reel testimonial you'd thumb-stop on, and never a "
+    "glossy studio commercial or staged set. {anim}Shoot it {angle}, on a modern smartphone lens "
+    "with a shallow but not cinematic depth of field and true-to-phone dynamic range. The on-camera "
+    "presenter is {model}: treat this exact person as fixed and identical across every shot — same "
+    "face, hair, skin and build — a real human with true-to-life skin texture, visible pores, fine "
+    "flyaway hair, natural blemishes and honest, expressive eyes, absolutely never plastic, waxy, "
+    "airbrushed, CGI or AI-looking and no beautify filter, with relaxed real energy, holding and "
+    "naturally using the product the way a genuine owner would, turning its label toward the lens "
+    "to show it off rather than posing like a paid model. Set it in {background}, a real, lived-in, "
+    "authentically Indian home or everyday Indian location lit softly in natural available light "
+    "with gentle window spill and the small imperfections of a real room — exactly where an "
+    "ordinary person would actually record themselves, never a studio, seamless backdrop or "
+    "artificial AI-looking set. The featured product must match the attached reference image "
+    "EXACTLY — identical shape, colour, material, finish, label, logo and text — kept sharp and "
+    "clearly in frame as the reason-to-believe hero moment, never redesigned, recoloured, "
+    "relabelled or substituted. The presenter speaks straight into the phone in {language}, warmly "
+    "and conversationally to camera, delivering exactly this line and nothing else: \"{line}\". "
+    "LIP-SYNC IS THE SINGLE MOST IMPORTANT REQUIREMENT: mouth, lips, teeth, tongue and jaw must "
+    "move in perfect frame-accurate sync with every single syllable, with natural co-articulation, "
+    "micro-expressions, real blinking and small head movement, utterly indistinguishable from a "
+    "real person genuinely speaking, with zero robotic, dubbed or out-of-sync feel, in one clear, "
+    "natural, consistent human voice that must never change between shots — {voice} — with clean "
+    "spoken audio only and no narration clutter. Strictly no on-screen text, subtitles, captions, "
+    "logo overlays or watermark anywhere in frame.{colors_clause}"
+)
+
+
 def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: bool) -> str:
+    """Full-depth UGC meta-ad shot brief for Veo 3.1 (see _VEO_PROMPT_TEMPLATE)."""
     name = brief.get("product_name") or product.name
     vmeta = video.meta or {}
     character = vmeta.get("character") or settings.veo_presenter
     voice = vmeta.get("voice") or settings.veo_voice
     setting_desc = vmeta.get("setting") or settings.veo_setting_bias
     anim = (
-        "Animate the provided reference into a live, moving shot; keep the presenter and product "
-        "identical to the reference. " if has_seed else ""
+        "Animate the attached reference frame into a live, moving shot, keeping the presenter and "
+        "product identical to it. " if has_seed else ""
     )
     colors = ", ".join((brief.get("brand_colors") or [])[:2])
-    return (
-        f"Authentic UGC-style {video.format} video for {name} — must look like real "
-        f"user-generated content a genuine customer filmed on their own phone, NOT a polished "
-        f"studio commercial. {anim}{angle}. "
-        f"UGC LOOK: shot handheld on a modern smartphone (natural selfie / arm's-length, or a "
-        f"friend filming), casual and candid, slightly imperfect framing, subtle natural camera "
-        f"shake, real available indoor lighting — the honest, relatable feel of an Instagram Reel "
-        f"or TikTok testimonial. Not cinematic, not staged, not an ad set. "
-        f"CONSISTENCY (critical — this is one shot of a multi-shot clip): the presenter is "
-        f"{character} — the SAME person with the identical face, hair and build in every shot; "
-        f"never swap the person. Default location: {setting_desc} — keep it unless this shot's "
-        f"script clearly moves the story to a new scripted location. The setting is a REAL, "
-        f"authentic Indian home / everyday Indian place — lived-in and believable, exactly where a "
-        f"real person would film themselves; never a studio or an artificial AI-looking backdrop. "
-        f"VOICE (must be identical in every shot — do NOT change voice between scenes): {voice}. "
-        f"REALISM: a real human with natural skin texture, visible pores and fine hair, believable "
-        f"hands and honest eyes — never plastic, waxy, airbrushed, CGI or AI-looking. "
-        f"PRODUCT FIDELITY — the featured product MUST be exactly the product in the reference "
-        f"image: identical shape, colour, material, label, logo and text. Never redesign, restyle, "
-        f"recolour or substitute it; keep it in focus and clearly visible. "
-        f"LIP-SYNC (the single most important thing): the presenter talks straight to the phone "
-        f"camera and their mouth, lips, teeth, tongue and jaw move in PERFECT frame-accurate sync "
-        f"with every spoken syllable — natural co-articulation, micro facial expressions, real "
-        f"blinking and small head movement, absolutely zero robotic, dubbed or out-of-sync feel; "
-        f"it must be indistinguishable from a real person actually speaking. Speaking in "
-        f"{settings.veo_language}, saying exactly: \"{line[:220]}\". One clear natural voice only, "
-        f"clean spoken audio, no background-narration clutter. Absolutely no on-screen text, "
-        f"subtitles, captions or watermark."
-        + (f" Subtle brand-colour accents in the setting: {colors}." if colors else "")
+    colors_clause = (
+        f" Let subtle {colors} brand-colour accents sit naturally in the real setting."
+        if colors else ""
+    )
+    return _VEO_PROMPT_TEMPLATE.format(
+        format=video.format,
+        name=name,
+        model=character,
+        voice=voice,
+        background=setting_desc,
+        line=(line or "").strip()[:220],
+        angle=angle,
+        language=settings.veo_language,
+        anim=anim,
+        colors_clause=colors_clause,
     )
 
 

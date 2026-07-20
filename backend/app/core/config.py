@@ -12,7 +12,7 @@ AI providers:
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -70,6 +70,38 @@ class Settings(BaseSettings):
     # Presenter + spoken language for the video model.
     veo_presenter: str = Field(default="a friendly Indian model")
     veo_language: str = Field(default="Hindi-English (Hinglish)")
+    # ONE fixed voice used across every scene (so scenes don't get different voices).
+    veo_voice: str = Field(
+        default=(
+            "a warm, natural female Indian voice in her mid-20s, friendly and clear, "
+            "conversational Hinglish delivery"
+        )
+    )
+    # Default real-world setting bias — authentic Indian homes/locations.
+    veo_setting_bias: str = Field(
+        default=(
+            "an authentic, real Indian home / everyday Indian setting (natural, lived-in, "
+            "not a generic or artificial AI-looking backdrop)"
+        )
+    )
+
+    # ---- Higgsfield (extra video models: Seedance, Kling, Gemini) ----
+    higgsfield_api_key: str = Field(default="")   # KEY_ID
+    higgsfield_secret: str = Field(default="")    # KEY_SECRET
+    higgsfield_base_url: str = Field(default="https://platform.higgsfield.ai")
+    higgsfield_timeout_seconds: int = Field(default=360)
+    # Extra models to render alongside Veo. label = UI tag; endpoint/model = Higgsfield API.
+    # Editable via HIGGSFIELD_MODELS (JSON) without a code change if the catalog shifts.
+    higgsfield_models: list[dict[str, Any]] = Field(
+        default_factory=lambda: [
+            {"label": "Seedance 2.0 4K", "endpoint": "/v1/image2video/seedance",
+             "model": "seedance-2.0", "params": {"resolution": "4k"}},
+            {"label": "Kling 3.0", "endpoint": "/v1/image2video/kling",
+             "model": "kling-3.0", "params": {}},
+            {"label": "Gemini Omni Flash", "endpoint": "/v1/image2video/gemini",
+             "model": "gemini-omni-flash", "params": {}},
+        ]
+    )
 
     # ---- Ideas ----
     ideas_count: int = Field(default=4)
@@ -107,6 +139,10 @@ class Settings(BaseSettings):
     @property
     def heygen_enabled(self) -> bool:
         return bool(self.heygen_api_key.strip())
+
+    @property
+    def higgsfield_enabled(self) -> bool:
+        return bool(self.higgsfield_api_key.strip() and self.higgsfield_secret.strip())
 
     @field_validator("cors_origins", mode="before")
     @classmethod

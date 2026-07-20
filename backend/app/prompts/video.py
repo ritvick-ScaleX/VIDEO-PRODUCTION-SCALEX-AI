@@ -18,6 +18,7 @@ SCHEMA: dict[str, Any] = {
         "script": {"type": "string"},
         "voiceover": {"type": "string"},
         "character": {"type": "string"},
+        "voice": {"type": "string"},
         "setting": {"type": "string"},
         "storyboard": {
             "type": "array",
@@ -37,7 +38,7 @@ SCHEMA: dict[str, Any] = {
         "captions": {"type": "array", "items": {"type": "string"}},
         "transitions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["script", "voiceover", "character", "setting", "storyboard", "captions", "transitions"],
+    "required": ["script", "voiceover", "character", "voice", "setting", "storyboard", "captions", "transitions"],
 }
 
 _DURATION_HINT = {
@@ -59,5 +60,11 @@ def build_prompt(brief: dict[str, Any], req: dict[str, Any]) -> str:
         f"BRAND & PRODUCT BRIEF:\n{json.dumps(brief, indent=2, default=str)}\n\n"
         "Deliver: a full script; a single voiceover track; a storyboard where each "
         "scene has visual, voiceover, on_screen_text, and duration; per-scene "
-        "captions; and a list of transitions between scenes."
+        "captions; and a list of transitions between scenes. "
+        "Also return: 'character' — ONE presenter chosen to FIT this product and its target "
+        "audience (right gender, age, look, vibe), identical in every scene; 'voice' — ONE "
+        "fixed voice matching that presenter (gender, age, accent, tone), the SAME across all "
+        "scenes; and 'setting' — an authentic, real Indian home / everyday Indian location "
+        "(lived-in, believable, not an artificial AI-looking backdrop). The presenter, voice "
+        "and setting stay consistent across every scene."
     )

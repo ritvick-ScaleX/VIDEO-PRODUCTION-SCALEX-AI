@@ -25,6 +25,7 @@ SCHEMA: dict[str, Any] = {
         "script": {"type": "string"},
         "voiceover": {"type": "string"},
         "character": {"type": "string"},
+        "voice": {"type": "string"},
         "setting": {"type": "string"},
         "storyboard": {
             "type": "array",
@@ -44,7 +45,7 @@ SCHEMA: dict[str, Any] = {
         "captions": {"type": "array", "items": {"type": "string"}},
         "transitions": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["script", "voiceover", "character", "setting", "storyboard", "captions", "transitions"],
+    "required": ["script", "voiceover", "character", "voice", "setting", "storyboard", "captions", "transitions"],
 }
 
 _DURATION_HINT = {
@@ -75,11 +76,20 @@ def build_prompt(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any
         "storyboard (scene, visual, voiceover, on_screen_text, duration); punchy "
         "per-scene captions; and smooth transitions that fit the pacing. "
         "CONSISTENCY (critical): also return 'character' — ONE detailed, reusable "
-        "description of the single presenter who appears in EVERY scene (gender, age, "
-        "complexion, hair style & colour, exact outfit with colours, overall vibe) — and "
+        "description of the single presenter who appears in EVERY scene, CHOSEN TO FIT this "
+        "product, its category and its target audience (pick the right gender, age, look, "
+        "styling and vibe for who actually buys this product — e.g. a men's grooming product "
+        "gets a male presenter, a bridal product a bride-age woman). Describe gender, age, "
+        "complexion, hair style & colour, exact outfit with colours, overall vibe — and "
         "'setting' — ONE primary location + light description (time of day, palette). "
         "Every scene features that SAME character (face/hair/build never change). Use the "
         "primary setting for nearly all scenes; at most ONE later scene may move to a "
         "different location for a deliberate transformation/payoff beat — if so, name the "
-        "new location explicitly in that scene's 'visual'."
+        "new location explicitly in that scene's 'visual'. "
+        "Also return 'voice' — ONE fixed voice for the whole ad, CHOSEN TO FIT the presenter "
+        "and target audience (gender, age, accent, tone, pace) so every scene is spoken in the "
+        "SAME single voice, never a different voice per scene. Match the voice gender to the "
+        "presenter. Prefer a natural Indian Hinglish voice. "
+        "SETTING: default to an authentic, real Indian home / everyday Indian location "
+        "(lived-in, believable) rather than a generic studio or artificial AI-looking backdrop."
     )

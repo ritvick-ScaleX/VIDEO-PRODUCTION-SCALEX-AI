@@ -51,9 +51,11 @@ async def render_video(product_id: str, video_id: str, db: AsyncSession = Depend
     """Kick off the render and return immediately (status='rendering'); the client polls
     the video list until it becomes 'ready'/'error'. The Veo work is minutes long and
     would otherwise time out behind the edge proxy."""
-    video = await video_service.begin_render(db, product_id, video_id)
-    await db.commit()  # persist 'rendering' before the background task reads it
+    video, sibling_ids = await video_service.begin_render(db, product_id, video_id)
+    await db.commit()  # persist 'rendering' + siblings before the tasks read them
     asyncio.create_task(video_service.render_background(product_id, video_id))
+    for sid in sibling_ids:  # extra models (Seedance / Kling / Gemini) via Higgsfield
+        asyncio.create_task(video_service.render_higgsfield_background(product_id, sid))
     return video
 
 

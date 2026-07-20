@@ -960,6 +960,10 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
   const [instructions, setInstructions] = React.useState("");
   const dirty = script !== (video.script ?? "");
 
+  const meta = (video.meta ?? {}) as { model_label?: string; is_variant?: boolean };
+  const modelLabel = meta.model_label ?? "Custom Model";
+  const isVariant = !!meta.is_variant;
+
   React.useEffect(() => {
     setScript(video.script ?? "");
   }, [video.script]);
@@ -967,8 +971,11 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="text-base">
+        <CardTitle className="flex items-center gap-2 text-base">
           {titleCase(video.format)} · {titleCase(video.duration)}
+          <Badge variant="default" className="gap-1">
+            <Film className="h-3 w-3" /> {modelLabel}
+          </Badge>
         </CardTitle>
         <Badge variant={VIDEO_STATUS_VARIANT[video.status] ?? "outline"}>
           {titleCase(video.status.replace("_", " "))}
@@ -995,10 +1002,19 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
         {video.status === "rendering" && (
           <div className="space-y-2">
             <Progress value={video.progress || 40} />
-            <p className="text-xs text-muted-foreground">Rendering multi-shot video…</p>
+            <p className="text-xs text-muted-foreground">
+              Rendering with {modelLabel}… this takes a few minutes and updates here automatically.
+            </p>
           </div>
         )}
+        {isVariant && video.status === "error" && (
+          <p className="rounded-xl bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            {(video.meta as { render_error?: string })?.render_error ?? "This model couldn't render."}
+          </p>
+        )}
 
+        {!isVariant && (
+        <>
         {/* Script editor */}
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
@@ -1108,9 +1124,17 @@ function VideoCard({ productId, video }: { productId: string; video: GeneratedVi
               {!rendering && video.frame_urls.length === 0 && (
                 <p className="text-xs text-muted-foreground">Generate frames before rendering.</p>
               )}
+              {!rendering && video.frame_urls.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Render also produces variants with Seedance, Kling &amp; Gemini when Higgsfield is
+                  configured — each appears as its own tagged card.
+                </p>
+              )}
             </>
           );
         })()}
+        </>
+        )}
       </CardContent>
     </Card>
   );

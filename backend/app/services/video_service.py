@@ -26,7 +26,7 @@ from app.prompts import script as script_prompt
 from app.prompts import video as video_prompt
 from app.schemas.generation import VideoGenerateRequest, VideoUpdate
 from app.services import analytics_service, image_service, mocks
-from app.services.ai import heygen, llm, media
+from app.services.ai import heygen, higgsfield, llm, media
 from app.services.brief import assemble_brief
 from app.services.product_service import _load
 from app.storage import storage
@@ -77,9 +77,10 @@ async def _draft_from_result(db, product, req, result, idea_id) -> GeneratedVide
         meta={
             "text_mode": llm.mode,
             "thumb_key": thumb_key,
-            # Consistency sheet: same presenter + same setting in every frame/shot.
+            # Consistency sheet: same presenter, same voice, same setting in every frame/shot.
             "character": result.get("character") or settings.veo_presenter,
-            "setting": result.get("setting") or "a fitting real-world location, natural light",
+            "voice": result.get("voice") or settings.veo_voice,
+            "setting": result.get("setting") or settings.veo_setting_bias,
         },
     )
     db.add(video)
@@ -161,7 +162,8 @@ async def reprompt(db: AsyncSession, video_id: str, instructions: str) -> Genera
     video.video_url = None
     meta = dict(video.meta or {})
     meta["character"] = result.get("character") or meta.get("character") or settings.veo_presenter
-    meta["setting"] = result.get("setting") or meta.get("setting") or "a fitting real-world location, natural light"
+    meta["voice"] = result.get("voice") or meta.get("voice") or settings.veo_voice
+    meta["setting"] = result.get("setting") or meta.get("setting") or settings.veo_setting_bias
     video.meta = meta
     await db.flush()
     await db.refresh(video)
@@ -229,9 +231,11 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
     consistency = (
         f"THE PRESENTER (identical in every frame of this storyboard): {character}. "
         f"Her/his face, hair and build must NEVER change between frames. "
-        f"PRIMARY SETTING (the default location & light): {setting_desc}. Keep this setting "
-        "unless THIS scene's direction explicitly names a different location — a scripted "
-        "location change is allowed, but the presenter stays the identical person."
+        f"PRIMARY SETTING (the default location & light): {setting_desc}. This must look like a "
+        "REAL, authentic Indian home / everyday Indian location — lived-in and believable, never "
+        "a generic studio or artificial AI-looking backdrop. Keep this setting unless THIS scene's "
+        "direction explicitly names a different location — a scripted location change is allowed, "
+        "but the presenter stays the identical person."
     )
     realism = (
         "This must look like a real photograph of a real person: natural skin with visible "
@@ -304,7 +308,8 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
     name = brief.get("product_name") or product.name
     vmeta = video.meta or {}
     character = vmeta.get("character") or settings.veo_presenter
-    setting_desc = vmeta.get("setting") or "a fitting real-world location, natural light"
+    voice = vmeta.get("voice") or settings.veo_voice
+    setting_desc = vmeta.get("setting") or settings.veo_setting_bias
     anim = (
         "Animate the provided reference into a live, moving shot; keep the presenter and product "
         "identical to the reference. " if has_seed else ""
@@ -316,6 +321,11 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
         f"{character} — the SAME person with the identical face, hair and build in every shot of "
         f"this ad; never swap the person. Default location: {setting_desc} — keep it unless this "
         f"shot's script clearly moves the story to a new scripted location. "
+        f"SETTING must feel like a REAL, authentic Indian home / everyday Indian location — "
+        f"believable, lived-in, natural — never a generic studio or an artificial AI-looking "
+        f"background. "
+        f"VOICE (must be identical in every shot of the ad — do NOT change voice between scenes): "
+        f"{voice}. "
         f"Shot on a professional cinema camera: lifelike human with natural skin texture and pores, "
         f"realistic fabric and material detail, true-to-life lighting with soft natural shadows, "
         f"35mm lens, shallow depth of field, gentle organic camera movement (subtle handheld/dolly), "
@@ -324,27 +334,122 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
         f"PRODUCT FIDELITY — the featured product MUST be exactly the product in the reference "
         f"image: identical shape, colour, material, label, logo and text. Never redesign, restyle, "
         f"recolour or substitute it; keep it in sharp focus and clearly visible. "
-        f"The presenter speaks directly to camera with accurate, well-timed lip-sync in "
-        f"{settings.veo_language}, saying exactly: \"{line[:220]}\". Crystal-clear spoken audio, "
-        f"no background-narration clutter. Absolutely no on-screen text, subtitles, captions or "
-        f"watermark."
+        f"LIP-SYNC (critical): the presenter faces the camera and SPEAKS the line; their lip and "
+        f"mouth movements must precisely match each spoken word, natural jaw and facial motion, "
+        f"perfectly time-aligned to the audio. Speaking in {settings.veo_language}, saying exactly: "
+        f"\"{line[:220]}\". Crystal-clear spoken audio, only this one voice, no background-narration "
+        f"clutter. Absolutely no on-screen text, subtitles, captions or watermark."
         + (f" Subtle brand-colour accents in the setting: {colors}." if colors else "")
     )
 
 
-async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> GeneratedVideo:
-    """Flip the video to 'rendering' and return at once — the minutes-long Veo work
-    then runs in the background (see render_background). Rendering synchronously over
-    HTTP times out behind Railway's proxy ('failed to fetch')."""
+async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> tuple[GeneratedVideo, list[str]]:
+    """Flip the video to 'rendering' and return at once — the minutes-long work runs
+    in the background. The primary video is the Veo render (tagged 'Custom Model');
+    when Higgsfield is configured, one tagged SIBLING video per extra model (Seedance,
+    Kling, Gemini…) is also created and rendered. Returns (primary, sibling_ids)."""
     video = await db.get(GeneratedVideo, video_id)
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     video.status = "rendering"
     video.progress = 5
     video.video_url = None
+    meta = dict(video.meta or {})
+    meta.setdefault("model_label", "Custom Model")  # Veo (our own pipeline)
+    video.meta = meta
     await db.flush()
+
+    sibling_ids: list[str] = []
+    # Only the primary spawns siblings (variants never spawn their own).
+    if higgsfield.enabled() and not meta.get("is_variant"):
+        carry = {k: meta[k] for k in ("character", "voice", "setting", "frame_keys", "thumb_key") if k in meta}
+        for mdef in higgsfield.models():
+            sib = GeneratedVideo(
+                product_id=video.product_id,
+                idea_id=video.idea_id,
+                duration=video.duration,
+                format=video.format,
+                script=video.script,
+                voiceover=video.voiceover,
+                storyboard=video.storyboard,
+                captions=video.captions,
+                transitions=video.transitions,
+                frame_urls=list(video.frame_urls or []),
+                thumbnail_url=video.thumbnail_url,
+                status="rendering",
+                progress=5,
+                meta={**carry, "model_label": mdef.get("label"), "higgsfield": mdef,
+                      "is_variant": True, "parent_id": video.id},
+            )
+            db.add(sib)
+            await db.flush()
+            sibling_ids.append(sib.id)
+
     await db.refresh(video)
-    return video
+    return video, sibling_ids
+
+
+def _higgsfield_prompt(video, product) -> str:
+    """Single-clip prompt for a Higgsfield model (image-to-video from frame 1)."""
+    brief = assemble_brief(product, product.brand)
+    name = brief.get("product_name") or product.name
+    vmeta = video.meta or {}
+    line = (video.voiceover or video.script or "").strip()[:500]
+    return (
+        f"Photorealistic {video.format} product advertisement for {name}. "
+        f"Presenter: {vmeta.get('character') or settings.veo_presenter} — one consistent person. "
+        f"Setting: a real, authentic Indian home / everyday Indian location — lived-in and "
+        f"believable, never an artificial AI-looking backdrop. "
+        f"Voice (single, consistent across the clip): {vmeta.get('voice') or settings.veo_voice}. "
+        f"The presenter speaks to camera with accurate lip-sync in {settings.veo_language}: "
+        f"\"{line}\". Keep the product EXACTLY as in the reference image (label, colours, shape). "
+        f"Cinematic, natural lighting, real human skin — not CGI. No on-screen text or watermark."
+    )
+
+
+async def render_higgsfield_background(product_id: str, video_id: str) -> None:
+    """Render a sibling video with its assigned Higgsfield model, in its own session."""
+    from app.database.session import AsyncSessionLocal
+
+    try:
+        async with AsyncSessionLocal() as db:
+            video = await db.get(GeneratedVideo, video_id)
+            if not video:
+                return
+            product = await _load(db, product_id)
+            mdef = (video.meta or {}).get("higgsfield")
+            image_url = (video.frame_urls or [None])[0]
+            mp4 = None
+            if mdef and image_url:
+                mp4 = await higgsfield.generate_video(mdef, _higgsfield_prompt(video, product), image_url)
+            meta = dict(video.meta or {})
+            if mp4:
+                vkey = f"products/{product_id}/videos/{video_id[:8]}.mp4"
+                video.video_url = storage.save_bytes(vkey, mp4)
+                meta.update({"video_provider": "higgsfield", "has_audio": True, "video_key": vkey})
+                frame = await media.extract_thumbnail(mp4, at_seconds=1.0)
+                if frame:
+                    tkey = f"products/{product_id}/videos/{video_id[:8]}-vthumb.jpg"
+                    video.thumbnail_url = storage.save_bytes(tkey, frame)
+                video.status = "ready"
+            else:
+                meta["render_error"] = "Higgsfield render unavailable (check credentials/model id, and that frame URLs are publicly reachable)."
+                video.status = "error"
+            video.meta = meta
+            video.progress = 100
+            await db.commit()
+    except Exception as exc:
+        logger.exception("higgsfield render failed for %s", video_id)
+        try:
+            async with AsyncSessionLocal() as db:
+                v = await db.get(GeneratedVideo, video_id)
+                if v:
+                    v.status = "error"
+                    v.progress = 100
+                    v.meta = {**(v.meta or {}), "render_error": str(exc)[:300]}
+                    await db.commit()
+        except Exception:
+            logger.exception("could not mark higgsfield error for %s", video_id)
 
 
 async def render_background(product_id: str, video_id: str) -> None:

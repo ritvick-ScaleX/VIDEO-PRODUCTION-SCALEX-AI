@@ -169,7 +169,8 @@ def mock_video(brief: dict[str, Any], req: dict[str, Any]) -> dict[str, Any]:  #
     benefits = _benefits(brief)
     return {
         "character": "A friendly Indian presenter in their late 20s, casual smart outfit, warm energy.",
-        "setting": "A bright, real-world location that suits the product; natural daylight.",
+        "voice": "A warm, natural female Indian voice, mid-20s, friendly and clear, Hinglish delivery.",
+        "setting": "A real, lived-in Indian home, natural daylight.",
         "script": (
             f"[Upbeat] Introducing {name}. {benefits[0]}. "
             f"Built for people who refuse to settle. {benefits[-1]}. "
@@ -284,7 +285,8 @@ def mock_script(brief: dict[str, Any], idea: dict[str, Any], req: dict[str, Any]
             "A warm, confident Indian woman in her late 20s; shoulder-length black hair; "
             "wearing a sage-green linen shirt; natural makeup; friendly, energetic vibe."
         ),
-        "setting": "A bright modern apartment living room, morning sunlight, warm neutral palette.",
+        "voice": "A warm, natural female Indian voice, mid-20s, friendly and clear, Hinglish delivery.",
+        "setting": "A real, lived-in Indian home living room, warm morning sunlight, homely neutral palette.",
         "script": (
             f"[Hook] {hook} "
             f"[Body] Sach mein, {benefits[0].lower()} — bina kisi jhanjhat ke. "

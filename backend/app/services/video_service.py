@@ -617,6 +617,7 @@ async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> Gene
         vkey = f"products/{product_id}/videos/{video_id[:8]}.mp4"
         video.video_url = storage.save_bytes(vkey, mp4)
         meta.update({"video_provider": provider, "has_audio": True, "video_key": vkey})
+        meta.pop("render_error", None)  # clear any stale error from a prior failed run
         # Poster = a real frame from the rendered video (not the placeholder poster).
         frame = await media.extract_thumbnail(mp4, at_seconds=1.0)
         if frame:

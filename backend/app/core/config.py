@@ -70,10 +70,9 @@ class Settings(BaseSettings):
     # This is the model that has been rendering videos — keep it.
     veo_model: str = Field(default="veo-3.1-fast-generate-preview")
     veo_timeout_seconds: int = Field(default=240)
-    # Number of angle/shot clips to generate and stitch into one ad (1 = single shot).
-    # With storyboard frames it's ONE shot per frame; this 5 is the fallback when a
-    # video has no frames, so the reel is a full 5-shot cut either way.
-    veo_shots: int = Field(default=5)
+    # Max number of shots (clips) in one ad. Caps both the storyboard frames and the
+    # rendered shots, so the reel is exactly this many shots (default 3).
+    veo_shots: int = Field(default=3)
     # Max Veo clips generated at once. Firing every shot concurrently trips Veo's
     # per-minute rate limit and drops clips (the reel loses frames); a low cap spreads
     # them out so each one lands without burning quota on retries.

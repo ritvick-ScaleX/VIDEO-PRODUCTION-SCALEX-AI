@@ -293,7 +293,7 @@ async def generate_frames(db: AsyncSession, product_id: str, video_id: str) -> G
     frame_urls: list[str] = []
     frame_keys: list[str] = []
     anchor: bytes | None = None  # frame 1 → visual anchor for all later frames
-    scenes = video.storyboard[:6] or [{"visual": brief.get("usp") or product.name, "on_screen_text": product.name}]
+    scenes = video.storyboard[:max(1, settings.veo_shots)] or [{"visual": brief.get("usp") or product.name, "on_screen_text": product.name}]
     for i, scene in enumerate(scenes):
         base = anchor if anchor is not None else seed
         continuation = (
@@ -650,10 +650,10 @@ async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> Gene
 
 async def _render_veo(brief, product, video, script_text, frame_seeds, model_seed, product_ref=None):
     scenes = list(video.storyboard or [])
-    # ONE shot per generated frame → every frame makes it into the reel (previously a
-    # fixed 3 shots silently dropped the tail frames whenever the storyboard had more).
-    # Fall back to the configured shot count only when there are no frames.
-    n = len(frame_seeds) if frame_seeds else max(1, settings.veo_shots)
+    # One shot per generated frame, but never more than the configured cap (veo_shots).
+    # Existing videos may carry more frames than the cap → use only the first N.
+    cap = max(1, settings.veo_shots)
+    n = min(len(frame_seeds), cap) if frame_seeds else cap
     split = _split_script(script_text, n)
 
     def _line_for(i: int) -> str:

@@ -405,6 +405,24 @@ def ffmpeg_available() -> bool:
     return shutil.which("ffmpeg") is not None
 
 
+def _ffprobe_duration(path: str) -> float | None:
+    import subprocess
+    for sel in (["-select_streams", "v:0"], []):
+        try:
+            r = subprocess.run(
+                ["ffprobe", "-v", "error", *sel, "-show_entries",
+                 ("stream=duration" if sel else "format=duration"),
+                 "-of", "csv=p=0", path],
+                capture_output=True, timeout=30,
+            )
+            val = float(r.stdout.decode().strip().splitlines()[0])
+            if val > 0:
+                return val
+        except Exception:
+            continue
+    return None
+
+
 def _sync_concat(clips: list[bytes], w: int = 720, h: int = 1280) -> bytes | None:
     import os
     import shutil as _sh
@@ -419,10 +437,11 @@ def _sync_concat(clips: list[bytes], w: int = 720, h: int = 1280) -> bytes | Non
         f"scale={w}:{h}:force_original_aspect_ratio=increase,"
         f"crop={w}:{h},setsar=1,fps=24,format=yuv420p"
     )
-    # Audio: force a uniform stereo/48k track and PAD it with silence to exactly the
-    # video length (-shortest). Veo clips often return audio slightly shorter than the
-    # video; without this the joins desync and the voice audibly cuts out.
-    af = "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad"
+    # Audio: uniform stereo/48k, PADDED with silence to EXACTLY the clip's video length.
+    # Veo clips often return audio shorter than the video; capping each normalised clip
+    # with -t <video-duration> + apad makes audio==video per clip, so the joins never
+    # desync or drop the voice. (Plain -shortest here doubled the audio — validated fix.)
+    af = "aresample=48000:async=1,apad"
     vcodec = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
               "-video_track_timescale", "24000"]
     acodec = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
@@ -432,15 +451,16 @@ def _sync_concat(clips: list[bytes], w: int = 720, h: int = 1280) -> bytes | Non
             src = os.path.join(tmp, f"c{i}.mp4")
             with open(src, "wb") as fh:
                 fh.write(data)
+            dur = _ffprobe_duration(src) or 8.0
             npath = os.path.join(tmp, f"n{i}.mp4")
-            # Normalise each clip to identical params, audio padded to video length.
-            cmd = ["ffmpeg", "-y", "-i", src, "-vf", vf, "-af", af, "-shortest",
+            # Normalise to identical params; audio padded and hard-capped to video length.
+            cmd = ["ffmpeg", "-y", "-i", src, "-vf", vf, "-af", af, "-t", f"{dur:.3f}",
                    *vcodec, *acodec, npath]
             r = subprocess.run(cmd, capture_output=True, timeout=150)
             if r.returncode != 0 or not os.path.exists(npath):
                 # Clip likely has no audio stream → synthesise a silent track its length.
                 cmd2 = ["ffmpeg", "-y", "-i", src, "-f", "lavfi",
-                        "-i", "anullsrc=r=48000:cl=stereo", "-vf", vf, "-shortest",
+                        "-i", "anullsrc=r=48000:cl=stereo", "-vf", vf, "-t", f"{dur:.3f}",
                         "-map", "0:v", "-map", "1:a", *vcodec, *acodec, npath]
                 r2 = subprocess.run(cmd2, capture_output=True, timeout=150)
                 if r2.returncode != 0 or not os.path.exists(npath):

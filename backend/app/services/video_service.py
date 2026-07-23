@@ -426,13 +426,16 @@ def _veo_shot_prompt(brief, product, video, line: str, angle: str, has_seed: boo
         f" Let subtle {colors} brand-colour accents sit naturally in the real setting."
         if colors else ""
     )
+    # Cap the spoken line to what fits ONE ~8s clip at a natural pace (~18 words).
+    # Cramming a long line into a short clip is the #1 cause of poor lip-sync.
+    spoken = " ".join((line or "").split()[:18])
     return _VEO_PROMPT_TEMPLATE.format(
         format=video.format,
         name=name,
         model=character,
         voice=voice,
         background=setting_desc,
-        line=(line or "").strip()[:220],
+        line=spoken,
         angle=angle,
         language=settings.veo_language,
         anim=anim,

@@ -227,7 +227,11 @@ _NEGATIVE_PROMPT = (
     "uncanny face, deformed hands, extra fingers, extra limbs, distorted or warped product, "
     "altered logo, changed packaging, wrong label, morphing product, text artifacts, "
     "on-screen text, subtitles, captions, watermark, logo overlay, blurry, low quality, "
-    "oversaturated, jittery motion"
+    "oversaturated, jittery motion, "
+    # Lip-sync failure modes to suppress.
+    "out-of-sync lips, mismatched mouth movement, lips not matching speech, dubbing, "
+    "bad dubbing, mouth closed while talking, frozen mouth, rushed or garbled speech, "
+    "muffled audio, robotic delivery, stiff jaw"
 )
 
 

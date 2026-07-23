@@ -51,8 +51,14 @@ class Settings(BaseSettings):
 
     # ---- Text AI: OpenAI (GPT) ----
     openai_api_key: str = Field(default="")
-    openai_model: str = Field(default="gpt-4o")
-    ai_max_tokens: int = Field(default=8000)
+    # GPT-5.5 — used for scripting + idea generation (a reasoning model).
+    openai_model: str = Field(default="gpt-5.5")
+    # Reasoning models spend tokens thinking before the JSON output, so give headroom
+    # (too low → reasoning eats the budget → truncated/invalid JSON → mock fallback).
+    ai_max_tokens: int = Field(default=16000)
+    # Reasoning effort for GPT-5-class models: none|low|medium|high|xhigh. Creative
+    # copy/ideas don't need deep reasoning, so 'low' keeps it fast and cheap.
+    openai_reasoning_effort: str = Field(default="low")
 
     # ---- Image AI: Google ----
     google_api_key: str = Field(default="")

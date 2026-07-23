@@ -26,6 +26,12 @@ def _resolve_mock(mock: MockLike) -> Any:
     return mock() if callable(mock) else mock
 
 
+def _is_reasoning_model(model: str) -> bool:
+    """GPT-5-class + o-series accept a `reasoning_effort` param; gpt-4o etc. don't."""
+    m = (model or "").lower()
+    return m.startswith("gpt-5") or m.startswith(("o1", "o3", "o4"))
+
+
 class LLMClient:
     """Thin async wrapper over the OpenAI SDK."""
 
@@ -55,6 +61,25 @@ class LLMClient:
     def provider(self) -> str:
         return "openai"
 
+    async def _create(self, **kwargs):
+        """Chat-completions call that adds reasoning_effort for reasoning models, and
+        transparently retries WITHOUT it if the model/SDK rejects the param — so a
+        model swap can never silently drop us into mock mode over one kwarg."""
+        model = kwargs.get("model", "")
+        if _is_reasoning_model(model):
+            try:
+                return await self._client.chat.completions.create(
+                    reasoning_effort=settings.openai_reasoning_effort, **kwargs
+                )
+            except TypeError:
+                pass  # SDK too old for the kwarg → fall through
+            except Exception as exc:
+                if "reasoning" in str(exc).lower():
+                    pass  # model rejected the param → fall through
+                else:
+                    raise
+        return await self._client.chat.completions.create(**kwargs)
+
     async def generate_structured(
         self,
         *,
@@ -71,7 +96,7 @@ class LLMClient:
         if not self.enabled:
             return _resolve_mock(mock)
         try:
-            resp = await self._client.chat.completions.create(
+            resp = await self._create(
                 model=model or settings.openai_model,
                 messages=[
                     {"role": "system", "content": system},
@@ -105,7 +130,7 @@ class LLMClient:
         if not self.enabled:
             return mock() if callable(mock) else mock
         try:
-            resp = await self._client.chat.completions.create(
+            resp = await self._create(
                 model=model or settings.openai_model,
                 messages=[
                     {"role": "system", "content": system},

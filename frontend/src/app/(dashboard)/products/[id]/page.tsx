@@ -405,12 +405,11 @@ function ImagePicker({ productId }: { productId: string }) {
           </>
         )}
 
-        {/* Manual add — reliable fallback when a site blocks automated scraping. */}
+        {/* Manual add — ONLY when scraping (Tier 1/2) produced no images. */}
+        {images.length === 0 && (
         <div className="space-y-2 rounded-xl border border-dashed border-white/15 p-3">
           <p className="text-[11px] text-muted-foreground">
-            {images.length === 0
-              ? "Couldn't fetch images automatically? Upload your own or paste an image URL."
-              : "Add more images"}
+            Couldn&apos;t fetch images automatically? Upload your own or paste an image URL.
           </p>
           <input
             ref={fileRef}
@@ -454,6 +453,7 @@ function ImagePicker({ productId }: { productId: string }) {
             </div>
           </div>
         </div>
+        )}
 
         <ImageLightbox src={preview} onClose={() => setPreview(null)} downloadable={false} />
       </CardContent>

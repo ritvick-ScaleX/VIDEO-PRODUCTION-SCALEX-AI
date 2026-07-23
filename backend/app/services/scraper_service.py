@@ -15,6 +15,7 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.models.product import Product
 from app.services import analytics_service
@@ -177,6 +178,72 @@ async def _fetch_product_images(url: str) -> list[str]:
     except Exception as exc:
         logger.info("product JSON image fetch failed (%s)", exc)
     return []
+
+
+def _images_from_text(text: str) -> list[str]:
+    """Extract product-image URLs from proxied page text (markdown/plain)."""
+    out: list[str] = []
+    for raw in re.findall(r'https?://[^\s"\'\)\]]+', text):
+        u = _force_https(raw.rstrip('.,);]'))
+        if not u:
+            continue
+        low = u.lower()
+        looks_img = (
+            bool(re.search(r'\.(jpg|jpeg|png|webp|gif|avif)(\?|$)', low))
+            or "/cdn/shop/" in low
+            or "cdn.shopify.com/s/files" in low
+        )
+        bad = low.endswith((".mp4", ".mov", ".webm", ".js", ".css", ".json", ".svg")) or "/videos/" in low
+        if looks_img and not bad and not _skip(u) and u not in out:
+            out.append(u)
+    return out
+
+
+async def _fetch_via_reader(url: str) -> tuple[list[str], str | None]:
+    """When the origin blocks our server IP, fetch through Jina Reader (r.jina.ai),
+    which fetches from its own IPs. Returns (image_urls, title). Prefers the store's
+    product JSON (clean gallery) via the proxy, else the rendered page's image URLs."""
+    try:
+        import httpx
+
+        headers = {"User-Agent": _UA}
+        if settings.jina_api_key.strip():
+            headers["Authorization"] = f"Bearer {settings.jina_api_key.strip()}"
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=45) as c:
+            # (a) Shopify product JSON through the proxy → clean, ordered gallery.
+            if "/products/" in path:
+                try:
+                    r = await c.get(f"https://r.jina.ai/{origin}{path}.json")
+                    body = r.text
+                    if r.status_code == 200 and "local_rate_limited" not in body[:200]:
+                        i = body.find("{")
+                        obj = json.JSONDecoder().raw_decode(body[i:])[0] if i >= 0 else {}
+                        prod = obj.get("product") if isinstance(obj, dict) else None
+                        if isinstance(prod, dict):
+                            imgs = [
+                                _force_https(im.get("src") if isinstance(im, dict) else im)
+                                for im in (prod.get("images") or [])
+                            ]
+                            imgs = [u for u in imgs if u and not _skip(u)]
+                            if imgs:
+                                logger.info("scraped %d images via reader+JSON: %s", len(imgs), url)
+                                return imgs[:12], (prod.get("title") or None)
+                except Exception:
+                    pass
+            # (b) Rendered page markdown → regex out the image URLs.
+            r = await c.get(f"https://r.jina.ai/{url}")
+            if r.status_code == 200 and "local_rate_limited" not in r.text[:200]:
+                imgs = _images_from_text(r.text)
+                m = re.search(r'(?im)^Title:\s*(.+)$', r.text)
+                if imgs:
+                    logger.info("scraped %d images via reader markdown: %s", len(imgs), url)
+                return imgs[:12], (m.group(1).strip() if m else None)
+    except Exception as exc:
+        logger.info("reader proxy failed (%s)", exc)
+    return [], None
 
 
 def parse_html(html: str, base_url: str) -> dict[str, Any]:
@@ -359,6 +426,14 @@ async def scrape_into_product(db: AsyncSession, product: Product) -> dict[str, A
     if api_imgs:
         seen = set(api_imgs)
         data["images"] = (api_imgs + [i for i in (data.get("images") or []) if i not in seen])[:12]
+
+    # If the origin blocked our server IP (nothing scraped), retry via a reader proxy.
+    if not data.get("images"):
+        proxied_imgs, proxied_title = await _fetch_via_reader(url)
+        if proxied_imgs:
+            data["images"] = proxied_imgs
+        if proxied_title and not (data.get("title") or "").strip():
+            data["title"] = proxied_title
 
     # The page's real title beats the URL-slug guess the client sent at create time.
     scraped_title = (data.get("title") or "").strip()

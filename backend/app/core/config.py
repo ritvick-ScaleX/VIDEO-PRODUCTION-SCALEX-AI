@@ -142,6 +142,13 @@ class Settings(BaseSettings):
     heygen_rotate_avatars: bool = Field(default=True)
     heygen_timeout_seconds: int = Field(default=300)
 
+    # ---- Scraper ----
+    # Many stores (Shopify + Cloudflare bot protection) block datacenter/server IPs,
+    # so a direct fetch from the host returns an empty/challenge page. When that happens
+    # we retry through Jina Reader (r.jina.ai), which fetches from its own IPs. Keyless
+    # works but is rate-limited; set JINA_API_KEY (free, generous) for reliable access.
+    jina_api_key: str = Field(default="")
+
     # ---- Storage ----
     storage_backend: str = Field(default="local")
     storage_dir: str = Field(default="./storage_data")

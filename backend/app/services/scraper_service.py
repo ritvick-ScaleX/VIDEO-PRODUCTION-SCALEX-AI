@@ -45,6 +45,28 @@ async def _fetch_html(url: str, use_proxy: bool = False) -> str:
     import httpx
 
     if use_proxy:
+        # Preferred: Bright Data Scraping Browser (remote Chrome over CDP) — renders JS
+        # and auto-solves bot challenges. connect_over_cdp talks to a REMOTE browser, so
+        # it needs no local chromium binary (works on a bare server).
+        ws = settings.scalex_browser_ws.strip()
+        if ws:
+            try:
+                from playwright.async_api import async_playwright
+
+                async with async_playwright() as p:
+                    browser = await p.chromium.connect_over_cdp(ws, timeout=60000)
+                    try:
+                        page = await browser.new_page()
+                        await page.goto(url, wait_until="domcontentloaded", timeout=90000)
+                        html = await page.content()
+                    finally:
+                        await browser.close()
+                logger.info("scraped via Scraping Browser: %s", url)
+                return html
+            except Exception as exc:
+                logger.info("scraping-browser fetch failed (%s)", exc)
+                # fall through to an HTTP proxy if one is also configured
+        # Fallback: a plain HTTP proxy (residential / unlocker) via httpx.
         proxy = settings.scraper_proxy_url.strip()
         if not proxy:
             return ""
@@ -389,10 +411,10 @@ async def scrape_into_product(db: AsyncSession, product: Product) -> dict[str, A
         seen = set(api_imgs)
         data["images"] = (api_imgs + [i for i in (data.get("images") or []) if i not in seen])[:12]
 
-    # Tier 2 — if the site blocked our IP (nothing came back), retry through the proxy.
+    # Tier 2 — if the site blocked our IP (nothing came back), retry through Bright Data.
     blocked = not data.get("images") and not (data.get("title") or "").strip()
-    if blocked and settings.scraper_proxy_url.strip():
-        logger.info("direct scrape empty — retrying via proxy: %s", url)
+    if blocked and (settings.scalex_browser_ws.strip() or settings.scraper_proxy_url.strip()):
+        logger.info("direct scrape empty — retrying via Bright Data: %s", url)
         phtml = await _fetch_html(url, use_proxy=True)
         pdata = parse_html(phtml, url) if phtml else {}
         papi = await _fetch_product_images(url, use_proxy=True)

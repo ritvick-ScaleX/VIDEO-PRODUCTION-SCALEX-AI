@@ -69,6 +69,8 @@ async def health():
         "text_ai": "live" if settings.text_ai_enabled else "mock",
         "media_ai": "live" if settings.google_ai_enabled else "mock",
         "text_model": settings.openai_model,
+        # Confirms the Bright Data scraper fallback is configured (bool only).
+        "scrape_proxy": bool(settings.scalex_browser_ws.strip() or settings.scraper_proxy_url.strip()),
     }
 
 

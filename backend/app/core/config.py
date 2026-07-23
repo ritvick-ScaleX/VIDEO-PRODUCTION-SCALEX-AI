@@ -144,9 +144,12 @@ class Settings(BaseSettings):
 
     # ---- Scraper ----
     # Many stores (Shopify + Cloudflare bot protection) block datacenter/server IPs.
-    # When a direct scrape comes back empty, we retry through this proxy (e.g. a Bright
-    # Data residential / Web-Unlocker endpoint) which fetches from unblocked IPs. Format:
-    # http://USER:PASS@HOST:PORT . Empty = disabled (falls straight to manual upload).
+    # When a direct scrape comes back empty, we retry through Bright Data:
+    #   • SCALEX_BROWSER_WS  — a Scraping Browser CDP endpoint (wss://user:pass@host:9222),
+    #     a real remote Chrome that renders JS + auto-solves challenges (preferred).
+    #   • SCRAPER_PROXY_URL  — a plain HTTP proxy (http://user:pass@host:port), used with httpx.
+    # Whichever is set is used; empty = disabled (falls straight to manual upload).
+    scalex_browser_ws: str = Field(default="")
     scraper_proxy_url: str = Field(default="")
 
     # ---- Storage ----

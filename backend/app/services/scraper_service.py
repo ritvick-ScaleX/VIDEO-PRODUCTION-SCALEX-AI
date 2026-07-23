@@ -30,8 +30,38 @@ _PRICE_RE = re.compile(r"(?:[$£€]|USD|EUR|GBP)\s?\d[\d,]*(?:\.\d{2})?", re.I)
 _HEX_RE = re.compile(r"#[0-9a-fA-F]{6}")
 
 
-async def _fetch_html(url: str) -> str:
-    """Prefer Playwright (JS-rendered); fall back to a plain HTTP GET."""
+_HEADERS = {
+    "User-Agent": _UA,
+    # Browser-like headers so stores are less likely to serve a bot-challenge page.
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+async def _fetch_html(url: str, use_proxy: bool = False) -> str:
+    """Fetch page HTML. Direct (Playwright → httpx) by default; through the configured
+    proxy (e.g. Bright Data) when use_proxy=True. Returns "" on any failure (never
+    raises) so callers can fall through the tiers: direct → proxy → manual upload."""
+    import httpx
+
+    if use_proxy:
+        proxy = settings.scraper_proxy_url.strip()
+        if not proxy:
+            return ""
+        try:
+            # verify=False: unlocker proxies often MITM TLS; fine for scraping.
+            async with httpx.AsyncClient(
+                proxy=proxy, verify=False, headers=_HEADERS, follow_redirects=True, timeout=45
+            ) as client:
+                resp = await client.get(url)
+                resp.raise_for_status()
+                logger.info("scraped via proxy: %s", url)
+                return resp.text
+        except Exception as exc:
+            logger.info("proxy fetch failed (%s)", exc)
+            return ""
+
+    # Direct — prefer Playwright (JS-rendered), else a plain HTTP GET.
     try:
         from playwright.async_api import async_playwright
 
@@ -45,21 +75,14 @@ async def _fetch_html(url: str) -> str:
             return html
     except Exception as exc:
         logger.info("Playwright unavailable/failed (%s) — httpx fallback", exc)
-
-    import httpx
-
-    # Browser-like headers so stores are less likely to serve a bot-challenge page.
-    headers = {
-        "User-Agent": _UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    async with httpx.AsyncClient(
-        headers=headers, follow_redirects=True, timeout=25
-    ) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-        return resp.text
+    try:
+        async with httpx.AsyncClient(headers=_HEADERS, follow_redirects=True, timeout=25) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text
+    except Exception as exc:
+        logger.info("direct fetch failed (%s)", exc)
+        return ""
 
 
 def _abs(base: str, src: str | None) -> str | None:
@@ -138,12 +161,12 @@ def _jsonld_images(soup: BeautifulSoup) -> list[str]:
     return out
 
 
-async def _fetch_product_images(url: str) -> list[str]:
+async def _fetch_product_images(url: str, use_proxy: bool = False) -> list[str]:
     """Clean product images from a store's data API (Shopify /products/{h}.json|.js).
 
     A lightweight JSON endpoint that dodges the JS/bot-challenge pages that block HTML
     scraping from datacenter IPs, and returns full-resolution, product-only images.
-    Returns [] for non-store URLs or on any failure.
+    Routed through the proxy when use_proxy=True. Returns [] on any failure.
     """
     try:
         parsed = urlparse(url)
@@ -154,7 +177,13 @@ async def _fetch_product_images(url: str) -> list[str]:
         import httpx
 
         headers = {"User-Agent": _UA, "Accept": "application/json, text/javascript, */*"}
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=20) as c:
+        client_kw: dict[str, Any] = dict(headers=headers, follow_redirects=True, timeout=20)
+        if use_proxy:
+            proxy = settings.scraper_proxy_url.strip()
+            if not proxy:
+                return []
+            client_kw.update(proxy=proxy, verify=False)
+        async with httpx.AsyncClient(**client_kw) as c:
             for suffix in (".json", ".js"):
                 try:
                     r = await c.get(f"{origin}{path}{suffix}")
@@ -178,72 +207,6 @@ async def _fetch_product_images(url: str) -> list[str]:
     except Exception as exc:
         logger.info("product JSON image fetch failed (%s)", exc)
     return []
-
-
-def _images_from_text(text: str) -> list[str]:
-    """Extract product-image URLs from proxied page text (markdown/plain)."""
-    out: list[str] = []
-    for raw in re.findall(r'https?://[^\s"\'\)\]]+', text):
-        u = _force_https(raw.rstrip('.,);]'))
-        if not u:
-            continue
-        low = u.lower()
-        looks_img = (
-            bool(re.search(r'\.(jpg|jpeg|png|webp|gif|avif)(\?|$)', low))
-            or "/cdn/shop/" in low
-            or "cdn.shopify.com/s/files" in low
-        )
-        bad = low.endswith((".mp4", ".mov", ".webm", ".js", ".css", ".json", ".svg")) or "/videos/" in low
-        if looks_img and not bad and not _skip(u) and u not in out:
-            out.append(u)
-    return out
-
-
-async def _fetch_via_reader(url: str) -> tuple[list[str], str | None]:
-    """When the origin blocks our server IP, fetch through Jina Reader (r.jina.ai),
-    which fetches from its own IPs. Returns (image_urls, title). Prefers the store's
-    product JSON (clean gallery) via the proxy, else the rendered page's image URLs."""
-    try:
-        import httpx
-
-        headers = {"User-Agent": _UA}
-        if settings.jina_api_key.strip():
-            headers["Authorization"] = f"Bearer {settings.jina_api_key.strip()}"
-        parsed = urlparse(url)
-        path = parsed.path.rstrip("/")
-        origin = f"{parsed.scheme}://{parsed.netloc}"
-        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=45) as c:
-            # (a) Shopify product JSON through the proxy → clean, ordered gallery.
-            if "/products/" in path:
-                try:
-                    r = await c.get(f"https://r.jina.ai/{origin}{path}.json")
-                    body = r.text
-                    if r.status_code == 200 and "local_rate_limited" not in body[:200]:
-                        i = body.find("{")
-                        obj = json.JSONDecoder().raw_decode(body[i:])[0] if i >= 0 else {}
-                        prod = obj.get("product") if isinstance(obj, dict) else None
-                        if isinstance(prod, dict):
-                            imgs = [
-                                _force_https(im.get("src") if isinstance(im, dict) else im)
-                                for im in (prod.get("images") or [])
-                            ]
-                            imgs = [u for u in imgs if u and not _skip(u)]
-                            if imgs:
-                                logger.info("scraped %d images via reader+JSON: %s", len(imgs), url)
-                                return imgs[:12], (prod.get("title") or None)
-                except Exception:
-                    pass
-            # (b) Rendered page markdown → regex out the image URLs.
-            r = await c.get(f"https://r.jina.ai/{url}")
-            if r.status_code == 200 and "local_rate_limited" not in r.text[:200]:
-                imgs = _images_from_text(r.text)
-                m = re.search(r'(?im)^Title:\s*(.+)$', r.text)
-                if imgs:
-                    logger.info("scraped %d images via reader markdown: %s", len(imgs), url)
-                return imgs[:12], (m.group(1).strip() if m else None)
-    except Exception as exc:
-        logger.info("reader proxy failed (%s)", exc)
-    return [], None
 
 
 def parse_html(html: str, base_url: str) -> dict[str, Any]:
@@ -417,23 +380,27 @@ async def scrape_into_brand(db: AsyncSession, brand) -> dict[str, Any]:
 async def scrape_into_product(db: AsyncSession, product: Product) -> dict[str, Any]:
     """Scrape the product's URL into its fields; seed the brand identity if empty."""
     url = product.source_url
-    html = await _fetch_html(url)
-    data = parse_html(html, url)
 
-    # Most reliable images come straight from the store's product JSON API — prepend
-    # them (they survive bot-challenged HTML and are full-resolution, product-only).
+    # Tier 1 — direct fetch.
+    html = await _fetch_html(url)
+    data = parse_html(html, url) if html else {"images": []}
     api_imgs = await _fetch_product_images(url)
     if api_imgs:
         seen = set(api_imgs)
         data["images"] = (api_imgs + [i for i in (data.get("images") or []) if i not in seen])[:12]
 
-    # If the origin blocked our server IP (nothing scraped), retry via a reader proxy.
-    if not data.get("images"):
-        proxied_imgs, proxied_title = await _fetch_via_reader(url)
-        if proxied_imgs:
-            data["images"] = proxied_imgs
-        if proxied_title and not (data.get("title") or "").strip():
-            data["title"] = proxied_title
+    # Tier 2 — if the site blocked our IP (nothing came back), retry through the proxy.
+    blocked = not data.get("images") and not (data.get("title") or "").strip()
+    if blocked and settings.scraper_proxy_url.strip():
+        logger.info("direct scrape empty — retrying via proxy: %s", url)
+        phtml = await _fetch_html(url, use_proxy=True)
+        pdata = parse_html(phtml, url) if phtml else {}
+        papi = await _fetch_product_images(url, use_proxy=True)
+        merged = papi + [i for i in (pdata.get("images") or []) if i not in set(papi)]
+        if merged:
+            pdata["images"] = merged[:12]
+        if pdata.get("images") or (pdata.get("title") or "").strip():
+            data = pdata  # proxy got real content — use it
 
     # The page's real title beats the URL-slug guess the client sent at create time.
     scraped_title = (data.get("title") or "").strip()

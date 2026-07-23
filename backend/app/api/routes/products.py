@@ -1,7 +1,8 @@
 """Product detail, analysis, and re-scrape (prefix /products)."""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_db
@@ -10,6 +11,10 @@ from app.schemas.product import AnalysisUpdate, ProductRead, ProductUpdate
 from app.services import analysis_service, product_service, scraper_service
 
 router = APIRouter()
+
+
+class ImageUrlIn(BaseModel):
+    url: str
 
 
 @router.get("/{product_id}", response_model=ProductRead)
@@ -56,3 +61,29 @@ async def rescrape(product_id: str, db: AsyncSession = Depends(get_db)):
     except Exception:
         pass  # keep the refreshed data even if analysis hiccups
     return await product_service.get_product(db, product_id)
+
+
+@router.post("/{product_id}/upload-image", response_model=ProductRead)
+async def upload_product_image(
+    product_id: str,
+    files: list[UploadFile] = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Manually add product images by upload — the reliable fallback when a site
+    blocks automated scraping."""
+    payload: list[tuple[bytes, str]] = []
+    for f in files:
+        data = await f.read()
+        if data:
+            payload.append((data, f.filename or "image.png"))
+    if not payload:
+        raise HTTPException(status_code=400, detail="No image files received")
+    return await product_service.add_uploaded_images(db, product_id, payload)
+
+
+@router.post("/{product_id}/image-url", response_model=ProductRead)
+async def add_product_image_url(product_id: str, body: ImageUrlIn, db: AsyncSession = Depends(get_db)):
+    """Manually add a product image by pasting its URL."""
+    if not (body.url or "").strip():
+        raise HTTPException(status_code=400, detail="No image URL provided")
+    return await product_service.add_image_urls(db, product_id, [body.url])

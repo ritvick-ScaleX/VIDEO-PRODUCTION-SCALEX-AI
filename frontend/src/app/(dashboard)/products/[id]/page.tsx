@@ -21,6 +21,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  Upload,
   Wand2,
 } from "lucide-react";
 import Link from "next/link";
@@ -72,6 +73,8 @@ import {
   useReviewImage,
   useCreateScript,
   useSelectIdea,
+  useAddProductImageUrl,
+  useUploadProductImages,
   useUpdateProduct,
   useUpdateVideo,
   useVideos,
@@ -292,6 +295,10 @@ function OverviewTab({ productId }: { productId: string }) {
 function ImagePicker({ productId }: { productId: string }) {
   const { data: product } = useProduct(productId);
   const save = useUpdateProduct(productId);
+  const upload = useUploadProductImages(productId);
+  const addUrl = useAddProductImageUrl(productId);
+  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [imgUrl, setImgUrl] = React.useState("");
   const [preview, setPreview] = React.useState<string | null>(null);
   const images = React.useMemo(() => product?.images ?? [], [product?.images]);
 
@@ -397,6 +404,57 @@ function ImagePicker({ productId }: { productId: string }) {
             )}
           </>
         )}
+
+        {/* Manual add — reliable fallback when a site blocks automated scraping. */}
+        <div className="space-y-2 rounded-xl border border-dashed border-white/15 p-3">
+          <p className="text-[11px] text-muted-foreground">
+            {images.length === 0
+              ? "Couldn't fetch images automatically? Upload your own or paste an image URL."
+              : "Add more images"}
+          </p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) upload.mutate(files);
+              e.target.value = "";
+            }}
+          />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant="glass"
+              size="sm"
+              onClick={() => fileRef.current?.click()}
+              disabled={upload.isPending}
+            >
+              {upload.isPending ? <Spinner /> : <Upload className="h-4 w-4" />} Upload
+            </Button>
+            <div className="flex flex-1 gap-2">
+              <Input
+                placeholder="…or paste an image URL"
+                value={imgUrl}
+                onChange={(e) => setImgUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && imgUrl.trim())
+                    addUrl.mutate(imgUrl.trim(), { onSuccess: () => setImgUrl("") });
+                }}
+              />
+              <Button
+                variant="glass"
+                size="sm"
+                disabled={addUrl.isPending || !imgUrl.trim()}
+                onClick={() => addUrl.mutate(imgUrl.trim(), { onSuccess: () => setImgUrl("") })}
+              >
+                {addUrl.isPending ? <Spinner /> : "Add"}
+              </Button>
+            </div>
+          </div>
+        </div>
+
         <ImageLightbox src={preview} onClose={() => setPreview(null)} downloadable={false} />
       </CardContent>
     </Card>

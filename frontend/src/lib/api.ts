@@ -45,6 +45,21 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function postForm<T>(path: string, form: FormData): Promise<T> {
+  // No Content-Type header — the browser sets the multipart boundary.
+  const res = await fetch(`${BASE}${path}`, { method: "POST", body: form, cache: "no-store" });
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      detail = (await res.json()).detail || detail;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(detail, res.status);
+  }
+  return res.json() as Promise<T>;
+}
+
 const get = <T>(p: string) => request<T>(p);
 const post = <T>(p: string, body?: unknown) =>
   request<T>(p, { method: "POST", body: body ? JSON.stringify(body) : undefined });
@@ -77,6 +92,13 @@ export const api = {
     updateAnalysis: (pid: string, analysis: Record<string, unknown>) =>
       patch<Product>(`/products/${pid}/analysis`, { analysis }),
     rescrape: (pid: string) => post<Product>(`/products/${pid}/rescrape`),
+    uploadImages: (pid: string, files: File[]) => {
+      const fd = new FormData();
+      files.forEach((f) => fd.append("files", f));
+      return postForm<Product>(`/products/${pid}/upload-image`, fd);
+    },
+    addImageUrl: (pid: string, url: string) =>
+      post<Product>(`/products/${pid}/image-url`, { url }),
   },
 
   ideas: {

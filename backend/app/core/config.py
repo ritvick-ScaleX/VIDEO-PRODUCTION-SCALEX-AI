@@ -143,11 +143,11 @@ class Settings(BaseSettings):
     heygen_timeout_seconds: int = Field(default=300)
 
     # ---- Scraper ----
-    # Many stores (Shopify + Cloudflare bot protection) block datacenter/server IPs,
-    # so a direct fetch from the host returns an empty/challenge page. When that happens
-    # we retry through Jina Reader (r.jina.ai), which fetches from its own IPs. Keyless
-    # works but is rate-limited; set JINA_API_KEY (free, generous) for reliable access.
-    jina_api_key: str = Field(default="")
+    # Many stores (Shopify + Cloudflare bot protection) block datacenter/server IPs.
+    # When a direct scrape comes back empty, we retry through this proxy (e.g. a Bright
+    # Data residential / Web-Unlocker endpoint) which fetches from unblocked IPs. Format:
+    # http://USER:PASS@HOST:PORT . Empty = disabled (falls straight to manual upload).
+    scraper_proxy_url: str = Field(default="")
 
     # ---- Storage ----
     storage_backend: str = Field(default="local")

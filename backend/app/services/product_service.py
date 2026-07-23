@@ -1,6 +1,8 @@
 """Product lifecycle — under a Brand. Create (optional scrape), read, update, delete."""
 from __future__ import annotations
 
+import uuid
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +12,7 @@ from app.core.logging import get_logger
 from app.models.product import Product
 from app.schemas.product import ProductCreate, ProductUpdate
 from app.services import analytics_service, brand_service
+from app.storage import storage
 
 logger = get_logger(__name__)
 
@@ -95,3 +98,47 @@ async def delete_product(db: AsyncSession, product_id: str) -> None:
     product = await _load(db, product_id)
     await db.delete(product)
     await db.flush()
+
+
+_IMG_EXT = {"png", "jpg", "jpeg", "webp", "gif"}
+
+
+async def add_uploaded_images(
+    db: AsyncSession, product_id: str, files: list[tuple[bytes, str]]
+) -> Product:
+    """Store uploaded image bytes and append their URLs to the product's images.
+
+    A reliable manual fallback when a site blocks server-side scraping.
+    """
+    product = await _load(db, product_id)
+    imgs = list(product.images or [])
+    for data, filename in files:
+        if not data:
+            continue
+        ext = (filename.rsplit(".", 1)[-1].lower() if "." in (filename or "") else "png")
+        if ext not in _IMG_EXT:
+            ext = "png"
+        key = f"products/{product_id}/uploads/{uuid.uuid4().hex[:10]}.{ext}"
+        url = storage.save_bytes(key, data)
+        if url and url not in imgs:
+            imgs.append(url)
+    product.images = imgs[:50]
+    if not product.thumbnail_url and product.images:
+        product.thumbnail_url = product.images[0]
+    await db.flush()
+    return await _load(db, product_id)
+
+
+async def add_image_urls(db: AsyncSession, product_id: str, urls: list[str]) -> Product:
+    """Append pasted image URL(s) to the product's images."""
+    product = await _load(db, product_id)
+    imgs = list(product.images or [])
+    for raw in urls:
+        u = (raw or "").strip()
+        if u and u not in imgs:
+            imgs.append(u)
+    product.images = imgs[:50]
+    if not product.thumbnail_url and product.images:
+        product.thumbnail_url = product.images[0]
+    await db.flush()
+    return await _load(db, product_id)

@@ -197,6 +197,30 @@ export function useRescrape(id: string) {
     onError: (e: Error) => toast.error(e.message),
   });
 }
+export function useUploadProductImages(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (files: File[]) => api.products.uploadImages(id, files),
+    onSuccess: (p) => {
+      qc.setQueryData(qk.product(id), p);
+      qc.invalidateQueries({ queryKey: qk.product(id) });
+      toast.success("Image(s) added");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
+export function useAddProductImageUrl(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (url: string) => api.products.addImageUrl(id, url),
+    onSuccess: (p) => {
+      qc.setQueryData(qk.product(id), p);
+      qc.invalidateQueries({ queryKey: qk.product(id) });
+      toast.success("Image added");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+}
 
 // --------------------------------------------------------------------------- //
 // Ideas

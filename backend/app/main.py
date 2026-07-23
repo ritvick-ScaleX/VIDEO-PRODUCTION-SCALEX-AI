@@ -68,10 +68,6 @@ async def health():
         "ai_mode": "live" if settings.text_ai_enabled else "mock",
         "text_ai": "live" if settings.text_ai_enabled else "mock",
         "media_ai": "live" if settings.google_ai_enabled else "mock",
-        # Scraper diagnostics: confirms the reader-fallback build is live and whether
-        # the Jina key is active (bool only — never leak the key value).
-        "scraper": "reader-fallback-v1",
-        "jina_key_set": bool(settings.jina_api_key.strip()),
         "text_model": settings.openai_model,
     }
 

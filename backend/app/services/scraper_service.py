@@ -7,6 +7,7 @@ project is left ready for manual editing.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -46,8 +47,14 @@ async def _fetch_html(url: str) -> str:
 
     import httpx
 
+    # Browser-like headers so stores are less likely to serve a bot-challenge page.
+    headers = {
+        "User-Agent": _UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
     async with httpx.AsyncClient(
-        headers={"User-Agent": _UA}, follow_redirects=True, timeout=20
+        headers=headers, follow_redirects=True, timeout=25
     ) as client:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -57,7 +64,119 @@ async def _fetch_html(url: str) -> str:
 def _abs(base: str, src: str | None) -> str | None:
     if not src:
         return None
-    return urljoin(base, src)
+    return _force_https(urljoin(base, src))
+
+
+def _force_https(u: str | None) -> str | None:
+    """Normalise to https (handle protocol-relative //… and http://) so images aren't
+    blocked as mixed content on our https app."""
+    if not u:
+        return None
+    u = u.strip()
+    if u.startswith("//"):
+        return "https:" + u
+    if u.startswith("http://"):
+        return "https://" + u[len("http://"):]
+    return u
+
+
+def _largest_from_srcset(srcset: str | None) -> str | None:
+    """Pick the highest-resolution URL from a srcset / data-srcset attribute."""
+    if not srcset:
+        return None
+    best, best_w = None, -1
+    for part in srcset.split(","):
+        bits = part.strip().split()
+        if not bits:
+            continue
+        w = 0
+        if len(bits) > 1 and bits[1].endswith("w"):
+            try:
+                w = int(bits[1][:-1])
+            except ValueError:
+                w = 0
+        if w >= best_w:
+            best, best_w = bits[0], w
+    return best
+
+
+def _jsonld_images(soup: BeautifulSoup) -> list[str]:
+    """Product images from schema.org JSON-LD — platform-agnostic, clean URLs."""
+    out: list[str] = []
+    for tag in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        raw = tag.string or tag.get_text() or ""
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        stack = [data]
+        while stack:
+            node = stack.pop()
+            if isinstance(node, list):
+                stack.extend(node)
+                continue
+            if not isinstance(node, dict):
+                continue
+            if isinstance(node.get("@graph"), list):
+                stack.extend(node["@graph"])
+            t = node.get("@type", "")
+            t = ",".join(t) if isinstance(t, list) else str(t)
+            if "Product" not in t:
+                continue
+            img = node.get("image")
+            if isinstance(img, str):
+                out.append(img)
+            elif isinstance(img, list):
+                for x in img:
+                    if isinstance(x, str):
+                        out.append(x)
+                    elif isinstance(x, dict) and x.get("url"):
+                        out.append(x["url"])
+            elif isinstance(img, dict) and img.get("url"):
+                out.append(img["url"])
+    return out
+
+
+async def _fetch_product_images(url: str) -> list[str]:
+    """Clean product images from a store's data API (Shopify /products/{h}.json|.js).
+
+    A lightweight JSON endpoint that dodges the JS/bot-challenge pages that block HTML
+    scraping from datacenter IPs, and returns full-resolution, product-only images.
+    Returns [] for non-store URLs or on any failure.
+    """
+    try:
+        parsed = urlparse(url)
+        path = parsed.path.rstrip("/")
+        if "/products/" not in path:
+            return []
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        import httpx
+
+        headers = {"User-Agent": _UA, "Accept": "application/json, text/javascript, */*"}
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=20) as c:
+            for suffix in (".json", ".js"):
+                try:
+                    r = await c.get(f"{origin}{path}{suffix}")
+                    if r.status_code != 200:
+                        continue
+                    data = r.json()
+                except Exception:
+                    continue
+                prod = data.get("product") if isinstance(data, dict) else None
+                if not isinstance(prod, dict):
+                    continue
+                out: list[str] = []
+                for im in prod.get("images") or []:
+                    src = im.get("src") if isinstance(im, dict) else (im if isinstance(im, str) else None)
+                    src = _force_https(src)
+                    if src:
+                        out.append(src)
+                if out:
+                    logger.info("scraped %d images via store JSON API: %s", len(out), url)
+                    return out
+    except Exception as exc:
+        logger.info("product JSON image fetch failed (%s)", exc)
+    return []
 
 
 def parse_html(html: str, base_url: str) -> dict[str, Any]:
@@ -88,16 +207,29 @@ def parse_html(html: str, base_url: str) -> dict[str, Any]:
         )
 
     images: list[str] = []
-    for img in soup.find_all("img")[:40]:
-        src = img.get("src") or img.get("data-src") or img.get("data-srcset", "").split(" ")[0]
-        u = _abs(base_url, src)
-        if u and u not in images and not _skip(u):
+    # 1) Hero from og:image / twitter:image (usually the main product shot).
+    for hero_meta in (meta("og:image:secure_url"), meta("og:image"), meta("twitter:image", "name")):
+        h = _abs(base_url, hero_meta)
+        if h and not _skip(h):
+            images.append(h)
+    # 2) schema.org JSON-LD Product images (platform-agnostic, clean URLs).
+    for u in _jsonld_images(soup):
+        u = _abs(base_url, u)
+        if u and not _skip(u):
             images.append(u)
-    og_img = meta("og:image")
-    if og_img:
-        og_abs = _abs(base_url, og_img)
-        if og_abs and not _skip(og_abs):
-            images.insert(0, og_abs)  # og:image is usually the hero product shot
+    # 3) <img> tags — prefer the largest srcset entry; skip data-URI lazy placeholders.
+    for img in soup.find_all("img")[:60]:
+        cand = (
+            _largest_from_srcset(img.get("srcset"))
+            or _largest_from_srcset(img.get("data-srcset"))
+            or img.get("src")
+            or img.get("data-src")
+        )
+        if not cand or cand.startswith("data:"):
+            continue
+        u = _abs(base_url, cand)
+        if u and not _skip(u):
+            images.append(u)
     # de-dupe preserving order
     seen: set[str] = set()
     images = [i for i in images if i and not (i in seen or seen.add(i))][:12]
@@ -220,6 +352,13 @@ async def scrape_into_product(db: AsyncSession, product: Product) -> dict[str, A
     url = product.source_url
     html = await _fetch_html(url)
     data = parse_html(html, url)
+
+    # Most reliable images come straight from the store's product JSON API — prepend
+    # them (they survive bot-challenged HTML and are full-resolution, product-only).
+    api_imgs = await _fetch_product_images(url)
+    if api_imgs:
+        seen = set(api_imgs)
+        data["images"] = (api_imgs + [i for i in (data.get("images") or []) if i not in seen])[:12]
 
     # The page's real title beats the URL-slug guess the client sent at create time.
     scraped_title = (data.get("title") or "").strip()

@@ -457,7 +457,8 @@ async def begin_render(db: AsyncSession, product_id: str, video_id: str) -> tupl
         raise HTTPException(status_code=404, detail="Video not found")
     video.status = "rendering"
     video.progress = 5
-    video.video_url = None
+    # NOTE: keep the existing video_url during the render — a failed re-render (e.g. a
+    # Veo 429) must NOT destroy a previously good video. Success overwrites it below.
     meta = dict(video.meta or {})
     meta.setdefault("model_label", "Custom Model")  # Veo (our own pipeline)
     video.meta = meta
@@ -630,12 +631,18 @@ async def _render_impl(db: AsyncSession, product_id: str, video_id: str) -> Gene
             video.thumbnail_url = storage.save_bytes(tkey, frame)
             meta["thumb_key"] = tkey
     else:
-        meta.update({
-            "video_provider": "storyboard",
-            "has_audio": False,
-            "render_error": media.last_video_error() or "Veo did not return any clips.",
-            "render_note": "Add GOOGLE_API_KEY (Veo) or HEYGEN_API_KEY to render the video.",
-        })
+        reason = media.last_video_error() or "Veo did not return any clips."
+        if video.video_url:
+            # A previous successful render exists — keep it. A failed re-render must
+            # not downgrade a good video to the storyboard placeholder.
+            meta["render_error"] = reason
+        else:
+            meta.update({
+                "video_provider": "storyboard",
+                "has_audio": False,
+                "render_error": reason,
+                "render_note": "Add GOOGLE_API_KEY (Veo) or HEYGEN_API_KEY to render the video.",
+            })
     video.meta = meta
     video.status = "ready"
     video.progress = 100
@@ -713,6 +720,32 @@ async def list_for_product(db: AsyncSession, product_id: str) -> list[GeneratedV
         .order_by(GeneratedVideo.created_at.desc())
     )
     return list(rows.scalars().all())
+
+
+async def restore(db: AsyncSession, video_id: str) -> GeneratedVideo:
+    """Re-point a video at its rendered mp4 (from meta.video_key) if the file still
+    exists — recovers a video whose DB url was cleared by a later failed render."""
+    video = await db.get(GeneratedVideo, video_id)
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    meta = dict(video.meta or {})
+    key = meta.get("video_key")
+    if not (key and storage.exists(key)):
+        raise HTTPException(
+            status_code=400,
+            detail="No recoverable video file for this reel — re-render it instead.",
+        )
+    video.video_url = storage.url_for(key)
+    video.status = "ready"
+    video.progress = 100
+    meta.pop("render_error", None)
+    if meta.get("video_provider") in (None, "storyboard"):
+        meta["video_provider"] = "veo-multishot"
+    meta["has_audio"] = True
+    video.meta = meta
+    await db.flush()
+    await db.refresh(video)
+    return video
 
 
 async def set_saved(db: AsyncSession, video_id: str, saved: bool) -> GeneratedVideo | None:

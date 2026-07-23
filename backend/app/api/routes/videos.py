@@ -59,6 +59,12 @@ async def render_video(product_id: str, video_id: str, db: AsyncSession = Depend
     return video
 
 
+@router.post("/{product_id}/videos/{video_id}/restore", response_model=VideoRead)
+async def restore_video(product_id: str, video_id: str, db: AsyncSession = Depends(get_db)):
+    """Recover a video whose URL was cleared by a later failed render (mp4 still on disk)."""
+    return await video_service.restore(db, video_id)
+
+
 @router.patch("/{product_id}/videos/{video_id}/save", response_model=VideoRead)
 async def save_video(product_id: str, video_id: str, payload: SaveToggle, db: AsyncSession = Depends(get_db)):
     obj = await video_service.set_saved(db, video_id, payload.is_saved)

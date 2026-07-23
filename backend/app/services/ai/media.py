@@ -407,50 +407,70 @@ def ffmpeg_available() -> bool:
 
 def _sync_concat(clips: list[bytes], w: int = 720, h: int = 1280) -> bytes | None:
     import os
+    import shutil as _sh
     import subprocess
     import tempfile
 
     if len(clips) < 2 or not ffmpeg_available():
         return None
     tmp = tempfile.mkdtemp(prefix="scalex_concat_")
+    # Video: cover-scale + centre-crop to the target frame (full-bleed, no black bars).
+    vf = (
+        f"scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h},setsar=1,fps=24,format=yuv420p"
+    )
+    # Audio: force a uniform stereo/48k track and PAD it with silence to exactly the
+    # video length (-shortest). Veo clips often return audio slightly shorter than the
+    # video; without this the joins desync and the voice audibly cuts out.
+    af = "aresample=async=1:first_pts=0,aformat=sample_rates=48000:channel_layouts=stereo,apad"
+    vcodec = ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
+              "-video_track_timescale", "24000"]
+    acodec = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
     try:
-        paths = []
+        norm: list[str] = []
         for i, data in enumerate(clips):
-            p = os.path.join(tmp, f"c{i}.mp4")
-            with open(p, "wb") as fh:
+            src = os.path.join(tmp, f"c{i}.mp4")
+            with open(src, "wb") as fh:
                 fh.write(data)
-            paths.append(p)
+            npath = os.path.join(tmp, f"n{i}.mp4")
+            # Normalise each clip to identical params, audio padded to video length.
+            cmd = ["ffmpeg", "-y", "-i", src, "-vf", vf, "-af", af, "-shortest",
+                   *vcodec, *acodec, npath]
+            r = subprocess.run(cmd, capture_output=True, timeout=150)
+            if r.returncode != 0 or not os.path.exists(npath):
+                # Clip likely has no audio stream → synthesise a silent track its length.
+                cmd2 = ["ffmpeg", "-y", "-i", src, "-f", "lavfi",
+                        "-i", "anullsrc=r=48000:cl=stereo", "-vf", vf, "-shortest",
+                        "-map", "0:v", "-map", "1:a", *vcodec, *acodec, npath]
+                r2 = subprocess.run(cmd2, capture_output=True, timeout=150)
+                if r2.returncode != 0 or not os.path.exists(npath):
+                    logger.warning("concat: normalize clip %d failed: %s", i,
+                                   r.stderr.decode()[-300:])
+                    return None
+            norm.append(npath)
+        # All clips now share identical params → lossless concat-demuxer join.
+        listf = os.path.join(tmp, "list.txt")
+        with open(listf, "w") as fh:
+            for p in norm:
+                fh.write(f"file '{p}'\n")
         out = os.path.join(tmp, "out.mp4")
-        # Re-encode + concat filter so slightly-different streams still join. Each clip is
-        # scaled to COVER the target frame then centre-cropped (crop-to-fill) so the output
-        # is full-bleed with NO black bars, whatever aspect the source clip came back as.
-        n = len(paths)
-        inputs: list[str] = []
-        for p in paths:
-            inputs += ["-i", p]
-        parts = "".join(
-            f"[{i}:v]scale={w}:{h}:force_original_aspect_ratio=increase,"
-            f"crop={w}:{h},setsar=1,fps=24[v{i}];"
-            f"[{i}:a]aresample=44100[a{i}];"
-            for i in range(n)
-        )
-        concat_in = "".join(f"[v{i}][a{i}]" for i in range(n))
-        filt = f"{parts}{concat_in}concat=n={n}:v=1:a=1[v][a]"
-        cmd = ["ffmpeg", "-y", *inputs, "-filter_complex", filt,
-               "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-c:a", "aac",
-               "-movflags", "+faststart", out]
+        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listf,
+               "-c", "copy", "-movflags", "+faststart", out]
         r = subprocess.run(cmd, capture_output=True, timeout=180)
-        if r.returncode != 0:
-            logger.warning("ffmpeg concat failed: %s", r.stderr.decode()[-400:])
-            return None
+        if r.returncode != 0 or not os.path.exists(out):
+            # Fallback: re-encode the join if a stream-copy concat won't play nice.
+            cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", listf,
+                   *vcodec, *acodec, "-movflags", "+faststart", out]
+            r = subprocess.run(cmd, capture_output=True, timeout=200)
+            if r.returncode != 0 or not os.path.exists(out):
+                logger.warning("ffmpeg concat failed: %s", r.stderr.decode()[-400:])
+                return None
         with open(out, "rb") as fh:
             return fh.read()
     except Exception as exc:
         logger.warning("concat error (%s)", exc)
         return None
     finally:
-        import shutil as _sh
-
         _sh.rmtree(tmp, ignore_errors=True)
 
 

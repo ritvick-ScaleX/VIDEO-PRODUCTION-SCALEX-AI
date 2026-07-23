@@ -403,9 +403,11 @@ _VEO_PROMPT_TEMPLATE = (
     "LIP-SYNC IS THE SINGLE MOST IMPORTANT REQUIREMENT: mouth, lips, teeth, tongue and jaw must "
     "move in perfect frame-accurate sync with every single syllable, with natural co-articulation, "
     "micro-expressions, real blinking and small head movement, utterly indistinguishable from a "
-    "real person genuinely speaking, with zero robotic, dubbed or out-of-sync feel, in one clear, "
-    "natural, consistent human voice that must never change between shots — {voice} — with clean "
-    "spoken audio only and no narration clutter. Strictly no on-screen text, subtitles, captions, "
+    "real person genuinely speaking, with zero robotic, dubbed or out-of-sync feel, in ONE single "
+    "identical voice across every shot — the same pitch, timbre, accent and pace, never a "
+    "different-sounding voice between scenes — namely {voice} — speaking continuously with clean "
+    "audio, no silence gaps or mid-word cut-offs, and no narration clutter. Strictly no on-screen "
+    "text, subtitles, captions, "
     "logo overlays or watermark anywhere in frame.{colors_clause}"
 )
 
